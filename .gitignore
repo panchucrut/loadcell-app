@@ -1,0 +1,6 @@
+sessions/
+__pycache__/
+*.pyc
+*.pyo
+.env
+calibration.json

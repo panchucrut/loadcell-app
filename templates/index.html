@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sensores Prensa</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  <style>
+    :root { --bg: #0d1117; --surface: #161b22; --border: #30363d; --muted: #8b949e; --text: #c9d1d9; }
+    body { background: var(--bg); color: var(--text); font-size: 0.88rem; }
+    .navbar { background: var(--surface) !important; border-bottom: 1px solid var(--border); }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
+    #chartWrap { height: 400px; position: relative; }
+    .cell-btn { font-size: 0.72rem; padding: 2px 8px; margin: 2px; border-radius: 4px; cursor: pointer; transition: opacity .15s; }
+    .cell-btn.off { opacity: .3; }
+    .stat-card { background: #21262d; border: 1px solid var(--border); border-radius: 6px; padding: 10px 14px; }
+    .stat-val { font-size: 1.35rem; font-weight: 700; line-height: 1.1; }
+    .stat-unit { font-size: 0.7rem; color: var(--muted); }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.35} }
+    .pulsing { animation: pulse 1s infinite; }
+    .session-item { padding: 6px 8px; border-radius: 4px; cursor: pointer; border-left: 3px solid transparent; }
+    .session-item:hover { background: #21262d; }
+    .session-item.selected { background: #1f6feb22; border-left-color: #1f6feb; }
+    .modal-content { background: var(--surface); border: 1px solid var(--border); color: var(--text); }
+    .modal-header, .modal-footer { border-color: var(--border) !important; }
+    .form-control, .form-select, .input-group-text {
+      background: var(--bg); border-color: var(--border); color: var(--text); font-size: 0.82rem;
+    }
+    .form-control:focus, .form-select:focus {
+      background: var(--bg); color: var(--text); border-color: #1f6feb; box-shadow: none;
+    }
+    .table { color: var(--text); }
+    .table thead th { background: #21262d; border-color: var(--border); }
+    .table td, .table th { border-color: #21262d; vertical-align: middle; }
+    ::-webkit-scrollbar { width: 5px; }
+    ::-webkit-scrollbar-track { background: var(--bg); }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    .btn-outline-secondary { color: var(--muted); border-color: var(--border); }
+    .btn-outline-secondary:hover { background: #21262d; color: var(--text); border-color: var(--border); }
+  </style>
+</head>
+<body>
+
+<!-- ── NAVBAR ──────────────────────────────────────────────────────────────── -->
+<nav class="navbar navbar-dark px-3 py-2">
+  <span class="navbar-brand fw-bold mb-0">⚙ Sensores Prensa</span>
+  <div class="d-flex align-items-center gap-2 flex-wrap">
+    <select id="portSelect" class="form-select form-select-sm" style="width:220px">
+      <option value="">— seleccionar puerto —</option>
+    </select>
+    <button class="btn btn-sm btn-outline-secondary" onclick="refreshPorts()" title="Actualizar puertos">↺</button>
+    <button id="connectBtn" class="btn btn-sm btn-success" onclick="toggleConnect()">Conectar</button>
+    <span id="statusBadge" class="badge bg-secondary">Desconectado</span>
+  </div>
+</nav>
+
+<div class="container-fluid py-3">
+<div class="row g-3">
+
+  <!-- ── LEFT ─────────────────────────────────────────────────────────────── -->
+  <div class="col-xl-9">
+
+    <!-- Chart card -->
+    <div class="card p-3 mb-3">
+      <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+        <div class="d-flex gap-2 align-items-center">
+          <button id="pauseBtn" class="btn btn-sm btn-outline-warning" onclick="togglePause()">⏸ Pausar</button>
+          <button id="recBtn"   class="btn btn-sm btn-outline-danger"  onclick="toggleRecord()">⏺ Grabar</button>
+          <span id="recBadge" class="badge bg-danger pulsing d-none">● REC</span>
+        </div>
+        <div class="d-flex gap-2 align-items-center">
+          <span class="text-muted">Ventana:</span>
+          <select id="winSel" class="form-select form-select-sm" style="width:80px" onchange="windowSec=+this.value">
+            <option value="30">30 s</option>
+            <option value="60" selected>60 s</option>
+            <option value="120">2 min</option>
+            <option value="0">Todo</option>
+          </select>
+          <button class="btn btn-sm btn-outline-secondary" onclick="clearChart()">🗑</button>
+        </div>
+      </div>
+      <div id="chartWrap"><canvas id="mainChart"></canvas></div>
+    </div>
+
+    <!-- Stats row -->
+    <div class="row g-2">
+      <div class="col-6 col-sm-3">
+        <div class="stat-card">
+          <div class="text-muted mb-1">Carga Total</div>
+          <div class="stat-val text-success" id="sTotal">—</div>
+          <div class="stat-unit">kg</div>
+        </div>
+      </div>
+      <div class="col-6 col-sm-3">
+        <div class="stat-card">
+          <div class="text-muted mb-1">Celda Máx</div>
+          <div class="stat-val text-warning" id="sMaxVal">—</div>
+          <div class="stat-unit" id="sMaxName">—</div>
+        </div>
+      </div>
+      <div class="col-6 col-sm-3">
+        <div class="stat-card">
+          <div class="text-muted mb-1">Stroke</div>
+          <div class="stat-val text-info" id="sStroke">—</div>
+          <div class="stat-unit">%</div>
+        </div>
+      </div>
+      <div class="col-6 col-sm-3">
+        <div class="stat-card">
+          <div class="text-muted mb-1">Presión</div>
+          <div class="stat-val text-danger" id="sPress">—</div>
+          <div class="stat-unit">bar</div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /LEFT -->
+
+  <!-- ── RIGHT ────────────────────────────────────────────────────────────── -->
+  <div class="col-xl-3 d-flex flex-column gap-3">
+
+    <!-- Channel toggles -->
+    <div class="card p-3">
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <span class="fw-semibold">Canales</span>
+        <div class="d-flex gap-1">
+          <button class="btn btn-sm btn-outline-secondary py-0 px-2" onclick="setAll(true)">Todos</button>
+          <button class="btn btn-sm btn-outline-secondary py-0 px-2" onclick="setAll(false)">Ninguno</button>
+        </div>
+      </div>
+      <div id="toggleWrap"></div>
+    </div>
+
+    <!-- Calibration -->
+    <div class="card p-3">
+      <div class="fw-semibold mb-2">Calibración</div>
+      <button class="btn btn-sm btn-outline-primary w-100"
+              data-bs-toggle="modal" data-bs-target="#calModal">
+        Editar offsets y escalas
+      </button>
+    </div>
+
+    <!-- Filtros & Auto-Record -->
+    <div class="card p-3 mb-3">
+      <div class="fw-semibold mb-2 d-flex justify-content-between align-items-center">
+        <span>Filtros & Auto-Record</span>
+        <button class="btn btn-sm btn-outline-secondary py-0 px-2" onclick="saveFilter()">Guardar</button>
+      </div>
+
+      <div class="mb-2">
+        <label class="form-label mb-0 text-muted" style="font-size:0.75rem">
+          Ventana mediana: <strong id="lblWindow">7</strong>
+        </label>
+        <input type="range" class="form-range" id="sliderWindow" min="1" max="21" step="2" value="7"
+               oninput="document.getElementById('lblWindow').textContent=this.value">
+        <div class="text-muted" style="font-size:0.68rem">1 = sin filtro · mayor = más suavizado</div>
+      </div>
+
+      <div class="mb-2">
+        <label class="form-label mb-0 text-muted" style="font-size:0.75rem">
+          Piso de ruido: <strong id="lblFloor">5</strong> kg/celda
+        </label>
+        <input type="range" class="form-range" id="sliderFloor" min="0" max="50" step="1" value="5"
+               oninput="document.getElementById('lblFloor').textContent=this.value">
+      </div>
+
+      <hr class="border-secondary my-2">
+
+      <div class="d-flex align-items-center gap-2 mb-2">
+        <div class="form-check form-switch mb-0">
+          <input class="form-check-input" type="checkbox" id="autoRecToggle" onchange="saveFilter()">
+          <label class="form-check-label" for="autoRecToggle">Auto-grabar</label>
+        </div>
+        <span id="autoRecStatus" class="badge bg-secondary">off</span>
+      </div>
+
+      <div id="autoRecOptions">
+        <div class="mb-2">
+          <label class="form-label mb-0 text-muted" style="font-size:0.75rem">
+            Umbral disparo: <strong id="lblTrigger">30</strong> kg total
+          </label>
+          <input type="range" class="form-range" id="sliderTrigger" min="5" max="500" step="5" value="30"
+                 oninput="document.getElementById('lblTrigger').textContent=this.value">
+        </div>
+        <div class="row g-1">
+          <div class="col-6">
+            <label class="text-muted" style="font-size:0.7rem">Lecturas inicio</label>
+            <input type="number" class="form-control form-control-sm" id="inpTrigCount" value="8" min="1" max="50">
+          </div>
+          <div class="col-6">
+            <label class="text-muted" style="font-size:0.7rem">Lecturas stop</label>
+            <input type="number" class="form-control form-control-sm" id="inpStopCount" value="15" min="1" max="100">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Historial -->
+    <div class="card p-3 flex-grow-1">
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <span class="fw-semibold">Historial</span>
+        <button class="btn btn-sm btn-outline-secondary py-0 px-2" onclick="loadSessions()">↺</button>
+      </div>
+      <div id="sessionList" style="max-height:220px;overflow-y:auto"></div>
+      <div id="compareBar" class="mt-2 d-none d-flex gap-2">
+        <button class="btn btn-sm btn-outline-info flex-fill" onclick="doCompare()">Comparar</button>
+        <button class="btn btn-sm btn-outline-secondary" onclick="clearCompare()" title="Quitar">✕</button>
+      </div>
+    </div>
+
+  </div><!-- /RIGHT -->
+
+</div><!-- /row -->
+</div><!-- /container -->
+
+<!-- ── CALIBRATION MODAL ──────────────────────────────────────────────────── -->
+<div class="modal fade" id="calModal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Calibración de celdas</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted small mb-3">Fórmula: <code>kg = (raw − offset) / escala</code></p>
+        <table class="table table-sm table-bordered mb-0">
+          <thead>
+            <tr><th>Canal</th><th>Offset (raw)</th><th>Escala (raw/kg)</th></tr>
+          </thead>
+          <tbody id="calBody"></tbody>
+        </table>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-primary btn-sm" onclick="saveCal()">Guardar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+// ── Constants ────────────────────────────────────────────────────────────────
+const COLORS = [
+  '#FF6384','#36A2EB','#FFCE56','#4BC0C0','#9966FF',
+  '#FF9F40','#C9CBCF','#7CFC00','#FF69B4'
+];
+const CELL_KEYS   = Array.from({length:9}, (_,i) => `celda_${i+1}`);
+const MAX_PTS     = 3000;
+
+// ── State ────────────────────────────────────────────────────────────────────
+let paused      = false;
+let recording   = false;
+let connected   = false;
+let windowSec   = 60;
+let selectedSes = null;
+
+// Live buffers
+let tBuf   = [];
+let cBufs  = Array.from({length:9}, ()=>[]);
+let sBuf   = [];
+let pBuf   = [];
+
+// ── Chart ────────────────────────────────────────────────────────────────────
+const LIVE_DS = [
+  ...Array.from({length:9}, (_,i) => ({
+    label: `C${i+1}`,
+    data: [],
+    borderColor: COLORS[i],
+    backgroundColor: COLORS[i] + '15',
+    borderWidth: 1.5,
+    pointRadius: 0,
+    tension: 0.25,
+    yAxisID: 'y',
+  })),
+  { label:'Stroke',  data:[], borderColor:'#00CED1', borderWidth:1.5, pointRadius:0, tension:0.25, yAxisID:'y2' },
+  { label:'Presión', data:[], borderColor:'#FF4500', borderWidth:1.5, pointRadius:0, tension:0.25, yAxisID:'y2' },
+];
+
+const chart = new Chart(document.getElementById('mainChart').getContext('2d'), {
+  type: 'line',
+  data: { labels: [], datasets: LIVE_DS },
+  options: {
+    animation: false,
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: { mode:'index', intersect:false },
+    scales: {
+      x:  { ticks:{ color:'#8b949e', maxTicksLimit:8, callback: v => v+'s' }, grid:{ color:'#21262d' } },
+      y:  { title:{ display:true, text:'Carga (kg)', color:'#8b949e' }, ticks:{ color:'#8b949e' }, grid:{ color:'#21262d' } },
+      y2: { position:'right', title:{ display:true, text:'Stroke % / Presión bar', color:'#8b949e' },
+            ticks:{ color:'#8b949e' }, grid:{ drawOnChartArea:false } },
+    },
+    plugins: { legend:{ labels:{ color:'#c9d1d9', boxWidth:10, font:{size:11} } } },
+  }
+});
+
+// ── Toggle buttons ───────────────────────────────────────────────────────────
+function buildToggles() {
+  const wrap = document.getElementById('toggleWrap');
+  const entries = [
+    ...Array.from({length:9}, (_,i) => ({label:`Celda ${i+1}`, idx:i, color:COLORS[i]})),
+    {label:'Stroke',  idx:9,  color:'#00CED1'},
+    {label:'Presión', idx:10, color:'#FF4500'},
+  ];
+  wrap.innerHTML = entries.map(e =>
+    `<button class="cell-btn" data-i="${e.idx}"
+             style="background:${e.color}18;border:1px solid ${e.color};color:${e.color}"
+             onclick="toggleChannel(${e.idx},this)">${e.label}</button>`
+  ).join('');
+}
+
+function toggleChannel(idx, btn) {
+  const ds = chart.data.datasets[idx];
+  ds.hidden = !ds.hidden;
+  btn.classList.toggle('off', ds.hidden);
+  chart.update('none');
+}
+
+function setAll(show) {
+  chart.data.datasets.forEach((ds,i) => { if (!ds._cmp) ds.hidden = !show; });
+  document.querySelectorAll('.cell-btn').forEach(b => b.classList.toggle('off', !show));
+  chart.update('none');
+}
+
+// ── Socket.IO ────────────────────────────────────────────────────────────────
+const socket = io();
+
+socket.on('data', d => {
+  if (paused) return;
+  tBuf.push(d.t);
+  CELL_KEYS.forEach((k,i) => cBufs[i].push(d[k]));
+  sBuf.push(d.stroke);
+  pBuf.push(d.pressure);
+  if (tBuf.length > MAX_PTS) {
+    tBuf.shift();
+    cBufs.forEach(b => b.shift());
+    sBuf.shift(); pBuf.shift();
+  }
+  renderChart();
+  updateStats(d);
+});
+
+socket.on('status', s => {
+  connected = s.connected;
+  const badge = document.getElementById('statusBadge');
+  const btn   = document.getElementById('connectBtn');
+  if (connected) {
+    badge.className = 'badge bg-success'; badge.textContent = 'Conectado';
+    btn.className   = 'btn btn-sm btn-danger'; btn.textContent = 'Desconectar';
+  } else {
+    badge.className = 'badge bg-secondary';
+    badge.textContent = s.error ? '⚠ ' + s.error.slice(0,30) : 'Desconectado';
+    btn.className   = 'btn btn-sm btn-success'; btn.textContent = 'Conectar';
+  }
+});
+
+// ── Chart render ─────────────────────────────────────────────────────────────
+function getSlice() {
+  if (!tBuf.length) return {t:[], cells:cBufs.map(()=>[]), s:[], p:[]};
+  if (!windowSec)   return {t:tBuf, cells:cBufs, s:sBuf, p:pBuf};
+  const cutoff = tBuf[tBuf.length-1] - windowSec;
+  const i = tBuf.findIndex(v => v >= cutoff);
+  return {
+    t:     tBuf.slice(i),
+    cells: cBufs.map(b => b.slice(i)),
+    s:     sBuf.slice(i),
+    p:     pBuf.slice(i),
+  };
+}
+
+function renderChart() {
+  const {t, cells, s, p} = getSlice();
+  chart.data.labels = t.map(v => v.toFixed(1));
+  cells.forEach((c,i) => chart.data.datasets[i].data = c);
+  chart.data.datasets[9].data  = s;
+  chart.data.datasets[10].data = p;
+  chart.update('none');
+}
+
+// ── Stats ────────────────────────────────────────────────────────────────────
+function updateStats(d) {
+  const vals  = CELL_KEYS.map(k => d[k]);
+  const total = vals.reduce((a,b)=>a+b, 0);
+  const maxV  = Math.max(...vals);
+  const maxI  = vals.indexOf(maxV);
+  document.getElementById('sTotal').textContent   = total.toFixed(1);
+  document.getElementById('sMaxVal').textContent  = maxV.toFixed(1);
+  document.getElementById('sMaxName').textContent = `Celda ${maxI+1}`;
+  document.getElementById('sStroke').textContent  = d.stroke.toFixed(1);
+  document.getElementById('sPress').textContent   = d.pressure.toFixed(1);
+}
+
+// ── Controls ─────────────────────────────────────────────────────────────────
+function togglePause() {
+  paused = !paused;
+  document.getElementById('pauseBtn').textContent = paused ? '▶ Reanudar' : '⏸ Pausar';
+}
+
+function clearChart() {
+  tBuf = []; cBufs = Array.from({length:9},()=>[]); sBuf = []; pBuf = [];
+  // keep compare datasets
+  chart.data.labels = [];
+  chart.data.datasets.forEach(ds => { if (!ds._cmp) ds.data = []; });
+  chart.update('none');
+}
+
+function refreshPorts() {
+  fetch('/api/ports').then(r=>r.json()).then(ports => {
+    const sel = document.getElementById('portSelect');
+    const prev = sel.value;
+    sel.innerHTML = '<option value="">— seleccionar puerto —</option>';
+    ports.forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = p.port;
+      opt.textContent = `${p.port}  (${p.desc.slice(0,30)})`;
+      sel.appendChild(opt);
+    });
+    // auto-select if only one, or restore previous
+    if (ports.length === 1) sel.value = ports[0].port;
+    else if (prev) sel.value = prev;
+  });
+}
+
+function toggleConnect() {
+  if (connected) {
+    fetch('/api/disconnect', {method:'POST'});
+  } else {
+    const port = document.getElementById('portSelect').value;
+    if (!port) { alert('Selecciona un puerto serial primero.'); return; }
+    fetch('/api/connect', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({port, baud: 115200})
+    });
+    const b = document.getElementById('statusBadge');
+    b.className='badge bg-warning text-dark'; b.textContent='Conectando…';
+  }
+}
+
+function toggleRecord() {
+  if (!recording) {
+    fetch('/api/record/start', {method:'POST'}).then(() => {
+      recording = true;
+      document.getElementById('recBtn').textContent   = '⏹ Detener';
+      document.getElementById('recBadge').classList.remove('d-none');
+    });
+  } else {
+    fetch('/api/record/stop', {method:'POST'}).then(r=>r.json()).then(d => {
+      recording = false;
+      document.getElementById('recBtn').textContent = '⏺ Grabar';
+      document.getElementById('recBadge').classList.add('d-none');
+      if (d.ok) { alert(`✅ Sesión guardada\n${d.name}\n${d.rows} registros`); loadSessions(); }
+      else      { alert('⚠ Sin datos para guardar.'); }
+    });
+  }
+}
+
+// ── Calibration ──────────────────────────────────────────────────────────────
+document.getElementById('calModal').addEventListener('show.bs.modal', () => {
+  fetch('/api/calibration').then(r=>r.json()).then(cal => {
+    document.getElementById('calBody').innerHTML = Array.from({length:9},(_,i)=>{
+      const k = `celda_${i+1}`;
+      return `<tr>
+        <td><strong>Celda ${i+1}</strong></td>
+        <td><input class="form-control" id="off${i+1}" value="${cal[k].offset}" type="number"></td>
+        <td><input class="form-control" id="sc${i+1}"  value="${cal[k].scale}"  type="number" step="0.1"></td>
+      </tr>`;
+    }).join('');
+  });
+});
+
+function saveCal() {
+  const cal = {};
+  for (let i=1; i<=9; i++) {
+    cal[`celda_${i}`] = {
+      offset: parseFloat(document.getElementById(`off${i}`).value),
+      scale:  parseFloat(document.getElementById(`sc${i}`).value),
+    };
+  }
+  fetch('/api/calibration', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(cal)
+  }).then(() => {
+    bootstrap.Modal.getInstance(document.getElementById('calModal')).hide();
+    // brief toast
+    const b = document.getElementById('statusBadge');
+    const prev = b.textContent;
+    b.textContent = '✓ Calibración guardada'; b.className = 'badge bg-success';
+    setTimeout(()=>{ b.textContent=prev; b.className=connected?'badge bg-success':'badge bg-secondary'; }, 2000);
+  });
+}
+
+// ── Sessions / History ───────────────────────────────────────────────────────
+function loadSessions() {
+  fetch('/api/sessions').then(r=>r.json()).then(list => {
+    const el = document.getElementById('sessionList');
+    if (!list.length) {
+      el.innerHTML = '<div class="text-muted small">Sin sesiones guardadas</div>';
+      return;
+    }
+    el.innerHTML = list.map(s => {
+      const label = s.name.replace('sesion_','');
+      const sel   = selectedSes === s.name ? 'selected' : '';
+      return `<div class="session-item ${sel}" onclick="selectSession('${s.name}')">
+        <div class="text-truncate">${label}</div>
+        <div class="text-muted" style="font-size:0.7rem">${s.rows} registros</div>
+      </div>`;
+    }).join('');
+  });
+}
+
+function selectSession(name) {
+  selectedSes = name;
+  document.getElementById('compareBar').classList.remove('d-none');
+  loadSessions();
+}
+
+function doCompare() {
+  if (!selectedSes) return;
+  fetch(`/api/sessions/${selectedSes}`).then(r=>r.json()).then(data => {
+    // Remove previous compare datasets
+    chart.data.datasets = chart.data.datasets.filter(d => !d._cmp);
+    for (let i=0; i<9; i++) {
+      const k  = `celda_${i+1}`;
+      if (!data[k]) continue;
+      chart.data.datasets.push({
+        label:       `C${i+1} ◌`,
+        data:        data[k],
+        borderColor: COLORS[i],
+        borderWidth: 1,
+        borderDash:  [5,4],
+        pointRadius: 0,
+        tension:     0.25,
+        yAxisID:     'y',
+        _cmp:        true,
+      });
+    }
+    chart.update('none');
+    const label = selectedSes.replace('sesion_','');
+    const b = document.getElementById('statusBadge');
+    const prev = b.textContent;
+    b.className='badge bg-info text-dark'; b.textContent=`Comparando: ${label.slice(0,18)}`;
+    setTimeout(()=>{ b.textContent=prev; b.className=connected?'badge bg-success':'badge bg-secondary'; }, 3000);
+  });
+}
+
+function clearCompare() {
+  chart.data.datasets = chart.data.datasets.filter(d => !d._cmp);
+  chart.update('none');
+  selectedSes = null;
+  document.getElementById('compareBar').classList.add('d-none');
+  loadSessions();
+}
+
+// ── Filter config ────────────────────────────────────────────────────────────
+function loadFilter() {
+  fetch('/api/filter').then(r=>r.json()).then(cfg => {
+    document.getElementById('sliderWindow').value  = cfg.median_window;
+    document.getElementById('lblWindow').textContent = cfg.median_window;
+    document.getElementById('sliderFloor').value   = cfg.noise_floor;
+    document.getElementById('lblFloor').textContent  = cfg.noise_floor;
+    document.getElementById('autoRecToggle').checked = cfg.auto_record;
+    document.getElementById('autoRecStatus').textContent = cfg.auto_record ? 'on' : 'off';
+    document.getElementById('autoRecStatus').className   = cfg.auto_record ? 'badge bg-success' : 'badge bg-secondary';
+    document.getElementById('sliderTrigger').value     = cfg.trigger_kg;
+    document.getElementById('lblTrigger').textContent  = cfg.trigger_kg;
+    document.getElementById('inpTrigCount').value  = cfg.trigger_count;
+    document.getElementById('inpStopCount').value  = cfg.stop_count;
+  });
+}
+
+function saveFilter() {
+  const auto = document.getElementById('autoRecToggle').checked;
+  document.getElementById('autoRecStatus').textContent = auto ? 'on' : 'off';
+  document.getElementById('autoRecStatus').className   = auto ? 'badge bg-success' : 'badge bg-secondary';
+  const cfg = {
+    median_window: parseInt(document.getElementById('sliderWindow').value),
+    noise_floor:   parseFloat(document.getElementById('sliderFloor').value),
+    auto_record:   auto,
+    trigger_kg:    parseFloat(document.getElementById('sliderTrigger').value),
+    trigger_count: parseInt(document.getElementById('inpTrigCount').value),
+    stop_count:    parseInt(document.getElementById('inpStopCount').value),
+  };
+  fetch('/api/filter', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(cfg)
+  });
+}
+
+// ── Auto-record events ───────────────────────────────────────────────────────
+socket.on('auto_record', e => {
+  if (e.state === 'started') {
+    recording = true;
+    document.getElementById('recBtn').textContent = '⏹ Detener';
+    document.getElementById('recBadge').classList.remove('d-none');
+    // flash
+    const b = document.getElementById('statusBadge');
+    b.className='badge bg-danger'; b.textContent='⏺ Auto-grabando…';
+    setTimeout(()=>{ b.className=connected?'badge bg-success':'badge bg-secondary'; b.textContent=connected?'Conectado':'Desconectado'; }, 2000);
+  } else {
+    recording = false;
+    document.getElementById('recBtn').textContent = '⏺ Grabar';
+    document.getElementById('recBadge').classList.add('d-none');
+    if (e.name) { loadSessions(); }
+    const b = document.getElementById('statusBadge');
+    b.className='badge bg-info text-dark'; b.textContent=`✓ Guardado (${e.rows} reg)`;
+    setTimeout(()=>{ b.className=connected?'badge bg-success':'badge bg-secondary'; b.textContent=connected?'Conectado':'Desconectado'; }, 3000);
+  }
+});
+
+// ── Init ─────────────────────────────────────────────────────────────────────
+buildToggles();
+loadSessions();
+refreshPorts();
+loadFilter();
+</script>
+</body>
+</html>
