@@ -407,7 +407,7 @@ function clearChart() {
   chart.update('none');
 }
 
-function refreshPorts() {
+function refreshPorts(autoConnect=false) {
   fetch('/api/ports').then(r=>r.json()).then(ports => {
     const sel = document.getElementById('portSelect');
     const prev = sel.value;
@@ -419,8 +419,10 @@ function refreshPorts() {
       sel.appendChild(opt);
     });
     // auto-select if only one, or restore previous
-    if (ports.length === 1) sel.value = ports[0].port;
-    else if (prev) sel.value = prev;
+    if (ports.length === 1) {
+      sel.value = ports[0].port;
+      if (autoConnect && !connected) toggleConnect();
+    } else if (prev) sel.value = prev;
   });
 }
 
@@ -613,7 +615,7 @@ socket.on('auto_record', e => {
 // ── Init ─────────────────────────────────────────────────────────────────────
 buildToggles();
 loadSessions();
-refreshPorts();
+refreshPorts(true);   // auto-conecta si hay un solo puerto
 loadFilter();
 </script>
 </body>
