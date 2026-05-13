@@ -1,0 +1,38 @@
+{
+  "celda_1": {
+    "offset": 234500,
+    "scale": 823.5
+  },
+  "celda_2": {
+    "offset": 314500,
+    "scale": 855.5
+  },
+  "celda_3": {
+    "offset": 184000,
+    "scale": 832.5
+  },
+  "celda_4": {
+    "offset": 166000,
+    "scale": 860.0
+  },
+  "celda_5": {
+    "offset": 109000,
+    "scale": 843.4
+  },
+  "celda_6": {
+    "offset": 167300,
+    "scale": 848.7
+  },
+  "celda_7": {
+    "offset": 143700,
+    "scale": 838.3
+  },
+  "celda_8": {
+    "offset": 97500,
+    "scale": 859.5
+  },
+  "celda_9": {
+    "offset": 31100,
+    "scale": 858.1
+  }
+}
