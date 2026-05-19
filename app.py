@@ -45,6 +45,22 @@ _serial_cfg   = {'port': '', 'baud': 115200}
 # Median filter buffers (one deque per cell)
 _med_bufs = {f'celda_{i}': deque() for i in range(1, 10)}
 
+# Last raw frame (for calibration)
+_last_raw = {}
+
+# Stroke calibration: raw values for 0mm and 100mm
+STROKE_CAL_FILE = os.path.join(BASE, 'stroke_cal.json')
+
+def load_stroke_cal():
+    if os.path.exists(STROKE_CAL_FILE):
+        with open(STROKE_CAL_FILE) as f:
+            return json.load(f)
+    return {'raw_min': 0.49, 'raw_max': 98.24, 'mm_min': 0.0, 'mm_max': 100.0}
+
+def save_stroke_cal(sc):
+    with open(STROKE_CAL_FILE, 'w') as f:
+        json.dump(sc, f, indent=2)
+
 # Auto-record counters
 _above_count = 0
 _below_count = 0
@@ -83,7 +99,10 @@ def apply_cal(raw, cal):
     for i in range(1, 10):
         k = f'celda_{i}'
         out[k] = round((float(raw.get(k, 0)) - cal[k]['offset']) / cal[k]['scale'], 2)
-    out['stroke']   = round(float(raw.get('stroke',   0)), 2)
+    sc = load_stroke_cal()
+    raw_s = float(raw.get('stroke', 0))
+    span = sc['raw_max'] - sc['raw_min']
+    out['stroke'] = round((raw_s - sc['raw_min']) / span * (sc['mm_max'] - sc['mm_min']) + sc['mm_min'], 2) if span != 0 else round(raw_s, 2)
     out['pressure'] = round(float(raw.get('pressure', 0)), 2)
     return out
 
@@ -146,6 +165,8 @@ def _serial_worker():
                 continue
             try:
                 raw  = json.loads(line)
+                with _lock:
+                    _last_raw.update(raw)
                 cal  = load_cal()
                 cfg  = load_filter()
                 data = apply_cal(raw, cal)
@@ -307,6 +328,44 @@ def del_session(name):
         if os.path.exists(p):
             os.remove(p)
     return jsonify({'ok': True})
+
+@app.route('/api/calibrate/zero', methods=['POST'])
+def calibrate_zero():
+    """Set current raw values as offset (zero) for all load cells."""
+    with _lock:
+        raw = dict(_last_raw)
+    if not raw:
+        return jsonify({'ok': False, 'msg': 'Sin datos del Arduino'}), 400
+    cal = load_cal()
+    for i in range(1, 10):
+        k = f'celda_{i}'
+        if k in raw:
+            cal[k]['offset'] = float(raw[k])
+    save_cal(cal)
+    return jsonify({'ok': True, 'msg': 'Zero seteado para las 9 celdas'})
+
+@app.route('/api/calibrate/stroke', methods=['POST'])
+def calibrate_stroke():
+    """Set stroke calibration point. body: {"point": "min"|"max"}"""
+    with _lock:
+        raw = dict(_last_raw)
+    if not raw:
+        return jsonify({'ok': False, 'msg': 'Sin datos del Arduino'}), 400
+    point = (request.json or {}).get('point')
+    sc = load_stroke_cal()
+    raw_val = float(raw.get('stroke', 0))
+    if point == 'min':
+        sc['raw_min'] = raw_val
+    elif point == 'max':
+        sc['raw_max'] = raw_val
+    else:
+        return jsonify({'ok': False, 'msg': 'point debe ser min o max'}), 400
+    save_stroke_cal(sc)
+    return jsonify({'ok': True, 'raw': raw_val, 'stroke_cal': sc})
+
+@app.route('/api/calibrate/stroke', methods=['GET'])
+def get_stroke_cal():
+    return jsonify(load_stroke_cal())
 
 if __name__ == '__main__':
     print('Abre http://localhost:5050 en tu navegador')
