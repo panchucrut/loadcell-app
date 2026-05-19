@@ -173,7 +173,7 @@
     <div class="tab-pane fade" id="tabReferencias">
       <div class="card p-3">
         <div class="d-flex justify-content-between align-items-center mb-3">
-          <span class="fw-semibold">Curvas de referencia — Carga total (kg) vs Stroke (mm)</span>
+          <span class="fw-semibold">Carga vs Deformación — Todos los ensayos</span>
           <button class="btn btn-sm btn-outline-secondary" onclick="loadRefs()">↺ Recargar</button>
         </div>
         <div id="refChartWrap" class="ref-chart-wrap">
@@ -598,7 +598,7 @@ function loadRefs(){
     });
 
     // Update axis labels
-    refChart.options.scales.x.title.text='Desplazamiento (mm)';
+    refChart.options.scales.x.title.text='Deformación (mm)';
     refChart.options.scales.y.title.text='Carga (kgf)';
     refChart.update();
   });
