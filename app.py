@@ -367,6 +367,15 @@ def calibrate_stroke():
 def get_stroke_cal():
     return jsonify(load_stroke_cal())
 
+REFERENCE_FILE = os.path.join(BASE, 'reference_data.json')
+
+@app.route('/api/references')
+def get_references():
+    if os.path.exists(REFERENCE_FILE):
+        with open(REFERENCE_FILE) as f:
+            return jsonify(json.load(f))
+    return jsonify([])
+
 if __name__ == '__main__':
     print('Abre http://localhost:5050 en tu navegador')
     socketio.run(app, host='0.0.0.0', port=5050, debug=False, allow_unsafe_werkzeug=True)

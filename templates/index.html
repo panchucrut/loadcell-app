@@ -568,41 +568,39 @@ function clearCompare(){
 const REF_COLORS=['#e6194b','#3cb44b','#4363d8','#f58231','#911eb4','#42d4f4','#f032e6','#bfef45','#808000','#a9a9a9'];
 
 function loadRefs(){
-  fetch('/api/sessions').then(r=>r.json()).then(list=>{
+  fetch('/api/references').then(r=>r.json()).then(ensayos=>{
     const emptyEl=document.getElementById('refEmpty');
-    if(!list.length){emptyEl.classList.remove('d-none');return;}
+    if(!ensayos.length){emptyEl.classList.remove('d-none');return;}
     emptyEl.classList.add('d-none');
 
-    Promise.all(list.slice(0,10).map(s=>
-      fetch(`/api/sessions/${s.name}`).then(r=>r.json()).then(data=>({name:s.name,data}))
-    )).then(sessions=>{
-      refChart.data.datasets=[];
-      const legendEl=document.getElementById('refLegend'); legendEl.innerHTML='';
+    refChart.data.datasets=[];
+    const legendEl=document.getElementById('refLegend'); legendEl.innerHTML='';
 
-      sessions.forEach((ses,idx)=>{
-        const{data}=ses;
-        if(!data.stroke||!data.celda_1)return;
-        const pts=data.stroke.map((_,i)=>({
-          x:data.stroke[i],
-          y:Array.from({length:9},(_,j)=>data[`celda_${j+1}`]?.[i]||0).reduce((a,b)=>a+b,0)
-        }));
-        const color=REF_COLORS[idx%REF_COLORS.length];
-        const label=ses.name.replace('sesion_','');
-        refChart.data.datasets.push({label,data:pts,borderColor:color,backgroundColor:color+'33',
-          showLine:true,borderWidth:1.8,pointRadius:0});
-
-        const pill=document.createElement('span');
-        pill.className='badge rounded-pill';
-        pill.style.cssText=`background:${color}22;color:${color};border:1px solid ${color};font-size:0.75rem;cursor:pointer;user-select:none`;
-        pill.textContent=label;
-        pill.onclick=()=>{
-          const ds=refChart.data.datasets.find(d=>d.label===label);
-          if(ds){ds.hidden=!ds.hidden;pill.style.opacity=ds.hidden?'0.35':'1';refChart.update('none');}
-        };
-        legendEl.appendChild(pill);
+    ensayos.forEach((e,idx)=>{
+      const pts=e.desplazamiento_mm.map((x,i)=>({x, y:e.carga_N[i]}));
+      const color=REF_COLORS[idx%REF_COLORS.length];
+      const label=`${e.nombre} — ${e.material}`;
+      refChart.data.datasets.push({
+        label,data:pts,borderColor:color,backgroundColor:color+'22',
+        showLine:true,borderWidth:1.8,pointRadius:0
       });
-      refChart.update();
+
+      const pill=document.createElement('span');
+      pill.className='badge rounded-pill';
+      pill.style.cssText=`background:${color}22;color:${color};border:1px solid ${color};font-size:0.75rem;cursor:pointer;user-select:none`;
+      pill.title=`Resistencia máx: ${(e.resistencia_max_N/1000).toFixed(2)} kN`;
+      pill.textContent=`E${e.id}: ${e.material} (${(e.resistencia_max_N/1000).toFixed(1)} kN)`;
+      pill.onclick=()=>{
+        const ds=refChart.data.datasets.find(d=>d.label===label);
+        if(ds){ds.hidden=!ds.hidden;pill.style.opacity=ds.hidden?'0.35':'1';refChart.update('none');}
+      };
+      legendEl.appendChild(pill);
     });
+
+    // Update axis labels
+    refChart.options.scales.x.title.text='Desplazamiento (mm)';
+    refChart.options.scales.y.title.text='Carga (N)';
+    refChart.update();
   });
 }
 
