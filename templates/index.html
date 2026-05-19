@@ -577,7 +577,7 @@ function loadRefs(){
     const legendEl=document.getElementById('refLegend'); legendEl.innerHTML='';
 
     ensayos.forEach((e,idx)=>{
-      const pts=e.desplazamiento_mm.map((x,i)=>({x, y:+(e.carga_N[i]/9.80665).toFixed(2)}));
+      const pts=e.desplazamiento_mm.map((x,i)=>({x, y:e.carga_kgf[i]}));
       const color=REF_COLORS[idx%REF_COLORS.length];
       const label=`${e.nombre} — ${e.material}`;
       refChart.data.datasets.push({
@@ -588,8 +588,8 @@ function loadRefs(){
       const pill=document.createElement('span');
       pill.className='badge rounded-pill';
       pill.style.cssText=`background:${color}22;color:${color};border:1px solid ${color};font-size:0.75rem;cursor:pointer;user-select:none`;
-      pill.title=`Resistencia máx: ${(e.resistencia_max_N/9.80665).toFixed(0)} kgf`;
-      pill.textContent=`E${e.id}: ${e.material} (${(e.resistencia_max_N/9.80665/1000).toFixed(2)} tf)`;
+      pill.title=`Resistencia máx: ${e.resistencia_max_kgf.toFixed(0)} kgf`;
+      pill.textContent=`E${e.id}: ${e.material} (${(e.resistencia_max_kgf/1000).toFixed(2)} tf)`;
       pill.onclick=()=>{
         const ds=refChart.data.datasets.find(d=>d.label===label);
         if(ds){ds.hidden=!ds.hidden;pill.style.opacity=ds.hidden?'0.35':'1';refChart.update('none');}
