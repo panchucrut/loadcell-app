@@ -2,10 +2,15 @@ import os, json, time, glob, threading, csv, statistics
 from collections import deque
 from serial.tools import list_ports
 from datetime import datetime
-from flask import Flask, render_template, jsonify, request
+from flask import Flask, render_template, render_template_string, jsonify, request
 from flask_socketio import SocketIO
 import serial
 from dotenv import load_dotenv
+try:
+    import markdown as _md
+    _HAS_MD = True
+except ImportError:
+    _HAS_MD = False
 load_dotenv()
 
 BASE             = os.path.dirname(os.path.abspath(__file__))
@@ -457,6 +462,20 @@ def get_references():
         with open(REFERENCE_FILE) as f:
             return jsonify(json.load(f))
     return jsonify([])
+
+MANUAL_FILE = os.path.join(BASE, 'manual.md')
+
+@app.route('/manual')
+def manual():
+    if not os.path.exists(MANUAL_FILE):
+        return 'Manual no encontrado', 404
+    with open(MANUAL_FILE, encoding='utf-8') as f:
+        src = f.read()
+    if _HAS_MD:
+        html = _md.markdown(src, extensions=['tables', 'fenced_code'])
+    else:
+        html = f'<pre>{src}</pre>'
+    return render_template('manual.html', content=html)
 
 if __name__ == '__main__':
     print('Abre http://localhost:5050 en tu navegador')
