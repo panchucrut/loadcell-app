@@ -77,6 +77,7 @@
 <div class="container-fluid py-2">
   <ul class="nav nav-tabs mb-3" id="mainTabs">
     <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#tabMonitor">Monitor</a></li>
+    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tabAnalisis" id="tabAnalisisLink">Análisis</a></li>
     <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tabReferencias" id="tabRefLink">Referencias</a></li>
     <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tabConfig">Configuración</a></li>
   </ul>
@@ -191,6 +192,45 @@
               <button class="btn btn-sm btn-outline-primary flex-fill" onclick="doCompare()">Comparar</button>
               <button class="btn btn-sm btn-outline-secondary" onclick="clearCompare()" title="Quitar">✕</button>
             </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══════════════════════════ ANÁLISIS ════════════════════════════════ -->
+    <div class="tab-pane fade" id="tabAnalisis">
+      <div class="row g-3">
+        <div class="col-xl-9">
+          <div class="card p-3">
+            <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+              <span class="fw-semibold">Carga vs Deformación — Comparativo</span>
+              <div class="d-flex gap-2">
+                <button class="btn btn-sm btn-outline-secondary" onclick="exportAnalisisPNG()">⬇ PNG</button>
+                <button class="btn btn-sm btn-outline-danger" onclick="clearAnalisis()">🗑 Limpiar</button>
+              </div>
+            </div>
+            <div id="analisisChartWrap" style="height:400px;position:relative">
+              <canvas id="analisisChart"></canvas>
+            </div>
+            <div class="d-flex flex-wrap gap-2 mt-2 align-items-center" style="font-size:12px;">
+              <span class="text-muted">Eje Y (kg):</span>
+              <input type="number" id="anYMin" class="form-control form-control-sm" style="width:80px" placeholder="Mín" oninput="applyAnalisisRange()">
+              <input type="number" id="anYMax" class="form-control form-control-sm" style="width:80px" placeholder="Máx" oninput="applyAnalisisRange()">
+              <span class="text-muted ms-2">Eje X (mm):</span>
+              <input type="number" id="anXMin" class="form-control form-control-sm" style="width:80px" placeholder="Mín" oninput="applyAnalisisRange()">
+              <input type="number" id="anXMax" class="form-control form-control-sm" style="width:80px" placeholder="Máx" oninput="applyAnalisisRange()">
+              <button class="btn btn-sm btn-outline-secondary" onclick="resetAnalisisRange()">↺ Auto</button>
+            </div>
+            <!-- F3.4 leyenda con toggle F3.6 -->
+            <div id="analisisLegend" class="mt-3 d-flex flex-wrap gap-2"></div>
+          </div>
+        </div>
+
+        <div class="col-xl-3">
+          <div class="card p-3">
+            <div class="fw-semibold mb-2">Ensayos disponibles</div>
+            <div class="text-muted mb-2" style="font-size:0.75rem">Selecciona hasta 6</div>
+            <div id="analisisList" style="max-height:500px;overflow-y:auto"></div>
           </div>
         </div>
       </div>
@@ -910,6 +950,158 @@ socket.on('auto_record', e=>{
 });
 
 buildToggles(); loadSessions(); refreshPorts(true); loadFilter(); loadEnsayoMeta();
+
+// ── F3: Análisis ──────────────────────────────────────────────────────────────
+const AN_COLORS = ['#e6194b','#3cb44b','#4363d8','#f58231','#911eb4','#42d4f4'];
+const MAX_AN    = 6;
+let _anSelected = new Set(); // nombres de sesión seleccionados
+
+const analisisChart = new Chart(document.getElementById('analisisChart').getContext('2d'), {
+  type: 'scatter',
+  data: { datasets: [] },
+  options: {
+    animation: false, responsive: true, maintainAspectRatio: false,
+    scales: {
+      x: { title: { display: true, text: 'Deformación stroke (mm)', color: '#57606a' }, ticks: { color: '#57606a' }, grid: { color: '#e8ecf0' } },
+      y: { title: { display: true, text: 'Carga total (kg)', color: '#57606a' }, ticks: { color: '#57606a' }, grid: { color: '#e8ecf0' } },
+    },
+    plugins: {
+      legend: { display: false },
+      tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: (${ctx.parsed.x.toFixed(2)} mm, ${ctx.parsed.y.toFixed(1)} kg)` } }
+    },
+    elements: { point: { radius: 1.5 } },
+  }
+});
+
+// F3.2: carga lista de ensayos disponibles
+function loadAnalisisList() {
+  fetch('/api/sessions').then(r => r.json()).then(list => {
+    const el = document.getElementById('analisisList');
+    if (!list.length) { el.innerHTML = '<div class="text-muted small">Sin sesiones grabadas</div>'; return; }
+    el.innerHTML = list.map((s, idx) => {
+      const meta  = s.meta || {};
+      const tipo  = meta.tipo || '';
+      const label = s.name.replace(/^(comp_cubo_|comp_piso_|def_esquina_|def_total_|sesion_)/, '');
+      const sel   = _anSelected.has(s.name);
+      const color = AN_COLORS[Array.from(_anSelected).indexOf(s.name) % AN_COLORS.length];
+      const dot   = sel ? `<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${color};margin-right:4px"></span>` : '';
+      const tipoBadge = tipo ? `<span class="tipo-badge tipo-${tipo}" style="font-size:0.6rem">${TIPO_LABELS[tipo]||tipo}</span> ` : '';
+      return `<div class="session-item${sel?' selected':''}" onclick="toggleAnalisisItem('${s.name}')">
+        <div class="d-flex align-items-center gap-1">
+          ${dot}${tipoBadge}
+          <span class="text-truncate" style="font-size:0.78rem">${label}</span>
+        </div>
+        ${meta.material ? `<div class="text-muted" style="font-size:0.68rem">${meta.material}${meta.dimensiones?' · '+meta.dimensiones:''}</div>` : ''}
+        <div class="text-muted" style="font-size:0.68rem">${s.rows} reg</div>
+      </div>`;
+    }).join('');
+  });
+}
+
+// F3.2: toggle selección (máx 6)
+function toggleAnalisisItem(name) {
+  if (_anSelected.has(name)) {
+    _anSelected.delete(name);
+  } else {
+    if (_anSelected.size >= MAX_AN) {
+      alert(`Máximo ${MAX_AN} ensayos simultáneos.`); return;
+    }
+    _anSelected.add(name);
+  }
+  loadAnalisisList();
+  renderAnalisis();
+}
+
+// F3.3 / F3.4: renderizar gráfico comparativo
+function renderAnalisis() {
+  const names = Array.from(_anSelected);
+  const legend = document.getElementById('analisisLegend');
+  legend.innerHTML = '';
+
+  const promises = names.map(name =>
+    fetch(`/api/sessions/${name}`).then(r => r.json()).then(data => ({ name, data }))
+  );
+
+  Promise.all(promises).then(results => {
+    analisisChart.data.datasets = results.map((r, idx) => {
+      const color = AN_COLORS[idx % AN_COLORS.length];
+      const meta  = r.name.replace(/^(comp_cubo_|comp_piso_|def_esquina_|def_total_|sesion_)/, '');
+
+      // Carga total = suma de todas las celdas
+      const strokeArr = r.data.stroke || [];
+      const totalArr  = strokeArr.map((_, i) => {
+        let s = 0;
+        for (let c = 1; c <= 9; c++) {
+          const v = r.data[`celda_${c}`];
+          s += v ? (v[i] || 0) : 0;
+        }
+        return s;
+      });
+      const pts = strokeArr.map((x, i) => ({ x: parseFloat(x), y: totalArr[i] }));
+
+      // F3.6: leyenda con toggle
+      const pill = document.createElement('span');
+      pill.className = 'badge rounded-pill';
+      pill.style.cssText = `background:${color}22;color:${color};border:1px solid ${color};font-size:0.75rem;cursor:pointer;user-select:none`;
+      pill.textContent = meta;
+      pill.onclick = () => {
+        const ds = analisisChart.data.datasets.find(d => d.label === meta);
+        if (ds) { ds.hidden = !ds.hidden; pill.style.opacity = ds.hidden ? '0.35' : '1'; analisisChart.update('none'); }
+      };
+      legend.appendChild(pill);
+
+      return {
+        label: meta,
+        data: pts,
+        borderColor: color,
+        backgroundColor: color + '22',
+        showLine: true,
+        borderWidth: 2,
+        pointRadius: 0,
+      };
+    });
+    analisisChart.update();
+  });
+}
+
+// F3.5: rango manual
+function applyAnalisisRange() {
+  analisisChart.options.scales.x.min = document.getElementById('anXMin').value !== '' ? parseFloat(document.getElementById('anXMin').value) : undefined;
+  analisisChart.options.scales.x.max = document.getElementById('anXMax').value !== '' ? parseFloat(document.getElementById('anXMax').value) : undefined;
+  analisisChart.options.scales.y.min = document.getElementById('anYMin').value !== '' ? parseFloat(document.getElementById('anYMin').value) : undefined;
+  analisisChart.options.scales.y.max = document.getElementById('anYMax').value !== '' ? parseFloat(document.getElementById('anYMax').value) : undefined;
+  analisisChart.update('none');
+}
+function resetAnalisisRange() {
+  ['anYMin','anYMax','anXMin','anXMax'].forEach(id => { document.getElementById(id).value = ''; });
+  analisisChart.options.scales.x.min = analisisChart.options.scales.x.max = undefined;
+  analisisChart.options.scales.y.min = analisisChart.options.scales.y.max = undefined;
+  analisisChart.update('none');
+}
+
+// F3.7: exportar PNG
+function exportAnalisisPNG() {
+  const url = analisisChart.toBase64Image('image/png', 1);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'analisis_comparativo.png';
+  a.click();
+}
+
+function clearAnalisis() {
+  _anSelected.clear();
+  analisisChart.data.datasets = [];
+  analisisChart.update();
+  document.getElementById('analisisLegend').innerHTML = '';
+  loadAnalisisList();
+}
+
+// Recargar lista al entrar a la pestaña
+document.getElementById('tabAnalisisLink').addEventListener('shown.bs.tab', loadAnalisisList);
+
+// También recargar lista al guardar una sesión (para que aparezca inmediatamente)
+const _origLoadSessions = loadSessions;
+loadSessions = function() { _origLoadSessions(); loadAnalisisList(); };
 </script>
 </body>
 </html>
