@@ -28,34 +28,45 @@ DEFAULT_CAL = {
 }
 
 DEFAULT_FILTER = {
-    'median_window':      7,      # samples for median filter (odd, 1=off)
-    'noise_floor':        5.0,    # kg — values below this per cell → 0
-    'auto_record':        False,  # auto-start/stop recording
-    'trigger_kg':         30.0,   # total kg above noise to start recording
-    'trigger_count':      8,      # consecutive readings above trigger to start
-    'stop_count':         15,     # consecutive readings below trigger to stop
+    'median_window':      7,
+    'noise_floor':        5.0,
+    'auto_record':        False,
+    'trigger_kg':         30.0,
+    'trigger_count':      8,
+    'stop_count':         15,
 }
 
-# ── state ─────────────────────────────────────────────────────────────────────
+ENSAYO_TIPOS = {
+    'comp_cubo':    'Compresión cubo',
+    'comp_piso':    'Compresión piso',
+    'def_esquina':  'Deformación esquina piso',
+    'def_total':    'Deformación total',
+}
+
+# ── state ──────────────────────────────────────────────────────────────────────
 _lock                 = threading.Lock()
 _ser_running          = False
 _ser_thread           = None
 _recording            = False
 _session_buf          = []
 _serial_cfg           = {'port': '', 'baud': 115200}
-_t_record_start       = None   # F1.2: T=0 at ensayo start
-_stroke_record_offset = 0.0    # F1.3: d=0 at ensayo start
+_t_record_start       = None
+_stroke_record_offset = 0.0
 
-# Median filter buffers (one deque per cell)
+# F2: ensayo metadata state
+_ensayo_meta = {
+    'tipo':        'comp_cubo',
+    'material':    '',
+    'dimensiones': '',
+    'operador':    '',
+    'notas':       '',
+    'titulo':      '',
+}
+
 _med_bufs = {f'celda_{i}': deque() for i in range(1, 10)}
-
-# Last raw frame (for calibration)
 _last_raw = {}
 
-# Stroke calibration: raw values for 0mm and 100mm
 STROKE_CAL_FILE = os.path.join(BASE, 'stroke_cal.json')
-
-# ── in-memory caches ──────────────────────────────────────────────────────────
 _STROKE_CAL_DEFAULT = {'raw_min': 0.49, 'raw_max': 98.24, 'mm_min': 0.0, 'mm_max': 100.0}
 _stroke_cal_cache = None
 _cal_cache = None
@@ -76,11 +87,9 @@ def save_stroke_cal(sc):
     with open(STROKE_CAL_FILE, 'w') as f:
         json.dump(sc, f, indent=2)
 
-# Auto-record counters
 _above_count = 0
 _below_count = 0
 
-# ── helpers ───────────────────────────────────────────────────────────────────
 def load_cal():
     global _cal_cache
     if _cal_cache is None:
@@ -104,7 +113,6 @@ def load_filter():
     if os.path.exists(FILTER_FILE):
         with open(FILTER_FILE) as f:
             cfg = json.load(f)
-        # fill missing keys with defaults
         return {**DEFAULT_FILTER, **cfg}
     return dict(DEFAULT_FILTER)
 
@@ -128,7 +136,6 @@ def apply_cal(raw, cal):
     return out
 
 def apply_filter(data, cfg):
-    """Median filter + noise floor per cell."""
     w = max(1, int(cfg['median_window']))
     floor = float(cfg['noise_floor'])
     out = dict(data)
@@ -142,12 +149,13 @@ def apply_filter(data, cfg):
         out[k] = round(val if abs(val) >= floor else 0.0, 2)
     return out
 
-def _save_session(buf):
-    """Save buffer to CSV + XLSX, return session name."""
+def _save_session(buf, meta=None):
+    """Save buffer to CSV + XLSX + meta.json, return session name."""
     if not buf:
         return None
     ts   = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
-    name = f'sesion_{ts}'
+    tipo = (meta or {}).get('tipo', 'sesion')
+    name = f'{tipo}_{ts}'
     keys = list(buf[0].keys())
     csv_path = os.path.join(SESSIONS_DIR, name + '.csv')
     with open(csv_path, 'w', newline='') as f:
@@ -164,14 +172,21 @@ def _save_session(buf):
         wb.save(os.path.join(SESSIONS_DIR, name + '.xlsx'))
     except Exception:
         pass
+    # F2.3: save meta.json
+    if meta:
+        meta_out = dict(meta)
+        meta_out['timestamp'] = ts
+        meta_out['rows'] = len(buf)
+        meta_out['nombre_archivo'] = name
+        with open(os.path.join(SESSIONS_DIR, name + '_meta.json'), 'w') as f:
+            json.dump(meta_out, f, indent=2, ensure_ascii=False)
     return name
 
-# ── serial worker ─────────────────────────────────────────────────────────────
+# ── serial worker ──────────────────────────────────────────────────────────────
 def _serial_worker():
     global _ser_running, _recording, _session_buf, _above_count, _below_count, _t_record_start, _stroke_record_offset
     t0  = time.time()
     ser = None
-    # Reset median buffers on connect
     for buf in _med_bufs.values():
         buf.clear()
     try:
@@ -194,7 +209,6 @@ def _serial_worker():
                 data = apply_filter(data, cfg)
                 data['t'] = round(time.time() - t0, 2)
 
-                # ── auto-record logic ────────────────────────────────────────
                 if cfg['auto_record']:
                     total = sum(data[f'celda_{i}'] for i in range(1, 10))
                     thr   = float(cfg['trigger_kg'])
@@ -214,15 +228,16 @@ def _serial_worker():
                         else:
                             _above_count = 0
                     else:
-                        if total < thr * 0.4:   # hysteresis: stop at 40% of trigger
+                        if total < thr * 0.4:
                             _below_count += 1
                             _above_count  = 0
                             if _below_count >= int(cfg['stop_count']):
                                 _recording = False
                                 with _lock:
                                     buf = list(_session_buf)
+                                    meta = dict(_ensayo_meta)
                                 _below_count = 0
-                                name = _save_session(buf)
+                                name = _save_session(buf, meta)
                                 socketio.emit('auto_record', {
                                     'state': 'stopped',
                                     'name': name,
@@ -230,9 +245,7 @@ def _serial_worker():
                                 })
                         else:
                             _below_count = 0
-                # ────────────────────────────────────────────────────────────
 
-                # F1.2/F1.3: apply relative time and stroke for live chart
                 if _recording and _t_record_start is not None:
                     data['t_rel']      = round(data['t'] - _t_record_start, 2)
                     data['stroke_rel'] = round(data['stroke'] - _stroke_record_offset, 2)
@@ -258,7 +271,7 @@ def _serial_worker():
             ser.close()
         socketio.emit('status', {'connected': False})
 
-# ── routes ────────────────────────────────────────────────────────────────────
+# ── routes ─────────────────────────────────────────────────────────────────────
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -308,11 +321,22 @@ def disconnect():
     _ser_running = False
     return jsonify({'ok': True})
 
+# F2: endpoint para setear metadata del ensayo
+@app.route('/api/ensayo/meta', methods=['GET'])
+def get_ensayo_meta():
+    return jsonify({**_ensayo_meta, 'tipos': ENSAYO_TIPOS})
+
+@app.route('/api/ensayo/meta', methods=['POST'])
+def post_ensayo_meta():
+    global _ensayo_meta
+    body = request.json or {}
+    _ensayo_meta.update({k: v for k, v in body.items() if k in _ensayo_meta})
+    return jsonify({'ok': True, 'meta': _ensayo_meta})
+
 @app.route('/api/record/start', methods=['POST'])
 def rec_start():
     global _recording, _session_buf, _t_record_start, _stroke_record_offset
     with _lock:
-        # F1.2/F1.3: capture current t and stroke as zero reference
         last = dict(_session_buf[-1]) if _session_buf else {}
         _t_record_start       = last.get('t', 0.0)
         _stroke_record_offset = last.get('stroke', 0.0)
@@ -325,8 +349,9 @@ def rec_stop():
     global _recording
     _recording = False
     with _lock:
-        buf = list(_session_buf)
-    name = _save_session(buf)
+        buf  = list(_session_buf)
+        meta = dict(_ensayo_meta)
+    name = _save_session(buf, meta)
     if not name:
         return jsonify({'ok': False, 'msg': 'sin datos'})
     return jsonify({'ok': True, 'name': name, 'rows': len(buf)})
@@ -340,7 +365,17 @@ def sessions():
             rows = sum(1 for _ in open(f)) - 1
         except Exception:
             rows = '?'
-        out.append({'name': os.path.basename(f)[:-4], 'rows': rows})
+        name = os.path.basename(f)[:-4]
+        # try to load meta
+        meta_path = os.path.join(SESSIONS_DIR, name + '_meta.json')
+        meta = {}
+        if os.path.exists(meta_path):
+            try:
+                with open(meta_path) as mf:
+                    meta = json.load(mf)
+            except Exception:
+                pass
+        out.append({'name': name, 'rows': rows, 'meta': meta})
     return jsonify(out)
 
 @app.route('/api/sessions/<name>')
@@ -361,15 +396,25 @@ def session_data(name):
 
 @app.route('/api/sessions/<name>', methods=['DELETE'])
 def del_session(name):
-    for ext in ('.csv', '.xlsx'):
+    for ext in ('.csv', '.xlsx', '_meta.json'):
         p = os.path.join(SESSIONS_DIR, name + ext)
         if os.path.exists(p):
             os.remove(p)
     return jsonify({'ok': True})
 
+# F2.5: foto del ensayo
+@app.route('/api/sessions/<name>/foto', methods=['POST'])
+def upload_foto(name):
+    if 'foto' not in request.files:
+        return jsonify({'ok': False, 'msg': 'sin archivo'}), 400
+    f = request.files['foto']
+    ext = os.path.splitext(f.filename)[1].lower() or '.jpg'
+    foto_path = os.path.join(SESSIONS_DIR, name + '_foto' + ext)
+    f.save(foto_path)
+    return jsonify({'ok': True, 'path': foto_path})
+
 @app.route('/api/calibrate/zero', methods=['POST'])
 def calibrate_zero():
-    """Set current raw values as offset (zero) for all load cells."""
     with _lock:
         raw = dict(_last_raw)
     if not raw:
@@ -384,7 +429,6 @@ def calibrate_zero():
 
 @app.route('/api/calibrate/stroke', methods=['POST'])
 def calibrate_stroke():
-    """Set stroke calibration point. body: {"point": "min"|"max"}"""
     with _lock:
         raw = dict(_last_raw)
     if not raw:

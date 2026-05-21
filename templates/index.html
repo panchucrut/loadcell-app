@@ -50,6 +50,14 @@
     .step-badge { display: inline-flex; align-items: center; justify-content: center;
       width: 24px; height: 24px; border-radius: 50%; background: var(--accent); color: white;
       font-size: 0.75rem; font-weight: 700; flex-shrink: 0; }
+    .meta-badge { font-size: 0.65rem; padding: 1px 5px; border-radius: 3px;
+      background: #e8f0fe; color: #0969da; border: 1px solid #c8d8fa; }
+    .tipo-badge { font-size: 0.65rem; padding: 1px 6px; border-radius: 10px;
+      font-weight: 600; }
+    .tipo-comp_cubo    { background:#fef3c7; color:#92400e; border:1px solid #fcd34d; }
+    .tipo-comp_piso    { background:#dcfce7; color:#14532d; border:1px solid #86efac; }
+    .tipo-def_esquina  { background:#ede9fe; color:#4c1d95; border:1px solid #c4b5fd; }
+    .tipo-def_total    { background:#fee2e2; color:#7f1d1d; border:1px solid #fca5a5; }
   </style>
 </head>
 <body>
@@ -83,6 +91,10 @@
             <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
               <div class="d-flex gap-2 align-items-center">
                 <button id="pauseBtn" class="btn btn-sm btn-outline-warning" onclick="togglePause()">⏸ Pausar</button>
+                <!-- F2: botón configura ensayo antes de grabar -->
+                <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#ensayoModal">
+                  🗂 Configurar ensayo
+                </button>
                 <button id="recBtn"   class="btn btn-sm btn-outline-danger"  onclick="toggleRecord()">⏺ Grabar</button>
                 <span id="recBadge" class="badge bg-danger pulsing d-none">● REC</span>
               </div>
@@ -96,6 +108,12 @@
                 </select>
                 <button class="btn btn-sm btn-outline-secondary" onclick="clearChart()">🗑</button>
               </div>
+            </div>
+            <!-- F2: chip del ensayo activo -->
+            <div id="ensayoChip" class="mb-2 d-none">
+              <span class="text-muted" style="font-size:0.75rem">Ensayo activo: </span>
+              <span id="ensayoChipTipo" class="tipo-badge"></span>
+              <span id="ensayoChipTitulo" class="text-muted ms-1" style="font-size:0.75rem"></span>
             </div>
             <div id="chartWrap"><canvas id="mainChart"></canvas></div>
             <div class="d-flex flex-wrap gap-2 mt-2 align-items-center" style="font-size:12px;">
@@ -162,13 +180,13 @@
             </button>
           </div>
 
-          <!-- Historial -->
+          <!-- Historial F2.4 -->
           <div class="card p-3 flex-grow-1">
             <div class="d-flex justify-content-between align-items-center mb-2">
               <span class="fw-semibold">Historial</span>
               <button class="btn btn-sm btn-outline-secondary py-0 px-2" onclick="loadSessions()">↺</button>
             </div>
-            <div id="sessionList" style="max-height:220px;overflow-y:auto"></div>
+            <div id="sessionList" style="max-height:280px;overflow-y:auto"></div>
             <div id="compareBar" class="mt-2 d-none d-flex gap-2">
               <button class="btn btn-sm btn-outline-primary flex-fill" onclick="doCompare()">Comparar</button>
               <button class="btn btn-sm btn-outline-secondary" onclick="clearCompare()" title="Quitar">✕</button>
@@ -276,6 +294,69 @@
   </div><!-- /tab-content -->
 </div>
 
+<!-- ══════════════ MODAL CONFIGURAR ENSAYO (F2) ════════════════════════════════ -->
+<div class="modal fade" id="ensayoModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">🗂 Configurar ensayo</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+
+        <div class="mb-3">
+          <label class="form-label fw-semibold mb-1" style="font-size:0.82rem">Tipo de ensayo</label>
+          <select class="form-select form-select-sm" id="ensayoTipo">
+            <option value="comp_cubo">Compresión cubo</option>
+            <option value="comp_piso">Compresión piso</option>
+            <option value="def_esquina">Deformación esquina piso</option>
+            <option value="def_total">Deformación total</option>
+          </select>
+        </div>
+
+        <div class="mb-3">
+          <label class="form-label text-muted mb-1" style="font-size:0.75rem">Material / muestra</label>
+          <input type="text" class="form-control form-control-sm" id="ensayoMaterial" placeholder="ej. hormigón H30">
+        </div>
+
+        <div class="mb-3">
+          <label class="form-label text-muted mb-1" style="font-size:0.75rem">Dimensiones</label>
+          <input type="text" class="form-control form-control-sm" id="ensayoDimensiones" placeholder="ej. 150×150×150 mm">
+        </div>
+
+        <div class="mb-3">
+          <label class="form-label text-muted mb-1" style="font-size:0.75rem">Operador</label>
+          <input type="text" class="form-control form-control-sm" id="ensayoOperador" placeholder="Nombre">
+        </div>
+
+        <div class="mb-3">
+          <label class="form-label text-muted mb-1" style="font-size:0.75rem">Notas</label>
+          <textarea class="form-control form-control-sm" id="ensayoNotas" rows="2" placeholder="Observaciones..."></textarea>
+        </div>
+
+        <div class="mb-2">
+          <label class="form-label text-muted mb-1" style="font-size:0.75rem">Título del archivo <span class="text-muted">(auto-generado, editable)</span></label>
+          <input type="text" class="form-control form-control-sm" id="ensayoTitulo" placeholder="Se genera al guardar">
+          <div class="text-muted mt-1" style="font-size:0.68rem">Vacío = {tipo}_{timestamp}</div>
+        </div>
+
+        <!-- F2.5: foto -->
+        <hr class="my-3">
+        <div class="mb-1">
+          <label class="form-label text-muted mb-1" style="font-size:0.75rem">📷 Foto de la muestra (opcional)</label>
+          <input type="file" class="form-control form-control-sm" id="ensayoFoto" accept="image/*" capture="environment">
+          <div class="text-muted mt-1" style="font-size:0.68rem">JPG o HEIC desde cámara o galería. Se guarda junto al ensayo al detener la grabación.</div>
+        </div>
+
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-primary btn-sm" onclick="saveEnsayoMeta()">Confirmar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- ══════════════ MODAL WIZARD CALIBRACIÓN ═══════════════════════════════════ -->
 <div class="modal fade" id="calWizardModal" tabindex="-1">
   <div class="modal-dialog modal-dialog-centered">
@@ -353,16 +434,41 @@
   </div>
 </div>
 
+<!-- ══════════════ MODAL DETALLE SESIÓN (F2.4) ════════════════════════════════ -->
+<div class="modal fade" id="sesionDetailModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Detalle del ensayo</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="sesionDetailBody"></div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cerrar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 <script>
 const COLORS    = ['#e6194b','#3cb44b','#4363d8','#f58231','#911eb4','#42d4f4','#f032e6','#bfef45','#a9a9a9'];
 const CELL_KEYS = Array.from({length:9}, (_,i) => `celda_${i+1}`);
 const MAX_PTS   = 3000;
 
+const TIPO_LABELS = {
+  comp_cubo:   'Comp. cubo',
+  comp_piso:   'Comp. piso',
+  def_esquina: 'Def. esquina',
+  def_total:   'Def. total',
+};
+
 let paused=false, recording=false, connected=false, windowSec=60, selectedSes=null;
 let tBuf=[], cBufs=Array.from({length:9},()=>[]), sBuf=[], pBuf=[];
+let _currentMeta = {tipo:'comp_cubo', material:'', dimensiones:'', operador:'', notas:'', titulo:''};
+let _pendingFotoName = null; // nombre de sesión al que subir foto
 
-// ── Main chart ────────────────────────────────────────────────────────────────
+// ── Main chart ──────────────────────────────────────────────────────────────
 const LIVE_DS = [
   ...Array.from({length:9}, (_,i) => ({
     label:`C${i+1}`, data:[], borderColor:COLORS[i], backgroundColor:COLORS[i]+'15',
@@ -386,7 +492,7 @@ const chart = new Chart(document.getElementById('mainChart').getContext('2d'), {
   }
 });
 
-// ── Ref chart ────────────────────────────────────────────────────────────────
+// ── Ref chart ───────────────────────────────────────────────────────────────
 const refChart = new Chart(document.getElementById('refChart').getContext('2d'), {
   type:'scatter',
   data:{datasets:[]},
@@ -404,7 +510,7 @@ const refChart = new Chart(document.getElementById('refChart').getContext('2d'),
   }
 });
 
-// ── Toggles ───────────────────────────────────────────────────────────────────
+// ── Toggles ──────────────────────────────────────────────────────────────────
 function buildToggles() {
   const wrap = document.getElementById('toggleWrap');
   const entries = [
@@ -427,7 +533,7 @@ function setAll(show) {
   chart.update('none');
 }
 
-// ── Socket ────────────────────────────────────────────────────────────────────
+// ── Socket ───────────────────────────────────────────────────────────────────
 const socket = io();
 socket.on('data', d=>{
   if(paused)return;
@@ -473,13 +579,12 @@ function updateStats(d){
   document.getElementById('sPress').textContent=d.pressure.toFixed(1);
 }
 
-// ── Controls ──────────────────────────────────────────────────────────────────
+// ── Controls ─────────────────────────────────────────────────────────────────
 function togglePause(){paused=!paused;document.getElementById('pauseBtn').textContent=paused?'▶ Reanudar':'⏸ Pausar';}
 function clearChart(){
   tBuf=[];cBufs=Array.from({length:9},()=>[]);sBuf=[];pBuf=[];
   chart.data.labels=[];chart.data.datasets.forEach(ds=>{if(!ds._cmp)ds.data=[];});chart.update('none');
 }
-// F1.5 — Monitor chart range controls
 function applyChartRange(){
   const yMin=document.getElementById('chartYMin').value;
   const yMax=document.getElementById('chartYMax').value;
@@ -497,7 +602,6 @@ function resetChartRange(){
   chart.options.scales.x.min=undefined; chart.options.scales.x.max=undefined;
   chart.update('none');
 }
-// F1.6 — Ref chart range controls
 function applyRefRange(){
   const yMin=document.getElementById('refYMin').value;
   const yMax=document.getElementById('refYMax').value;
@@ -543,10 +647,71 @@ function toggleRecord(){
     fetch('/api/record/stop',{method:'POST'}).then(r=>r.json()).then(d=>{
       recording=false;document.getElementById('recBtn').textContent='⏺ Grabar';
       document.getElementById('recBadge').classList.add('d-none');
-      if(d.ok){alert(`✅ Sesión guardada\n${d.name}\n${d.rows} registros`);loadSessions();}
-      else alert('⚠ Sin datos para guardar.');
+      if(d.ok){
+        _pendingFotoName = d.name;
+        uploadPendingFoto(d.name);
+        alert(`✅ Sesión guardada\n${d.name}\n${d.rows} registros`);
+        loadSessions();
+      } else alert('⚠ Sin datos para guardar.');
     });
   }
+}
+
+// ── F2: ensayo metadata ───────────────────────────────────────────────────────
+function loadEnsayoMeta(){
+  fetch('/api/ensayo/meta').then(r=>r.json()).then(m=>{
+    _currentMeta = m;
+    document.getElementById('ensayoTipo').value      = m.tipo||'comp_cubo';
+    document.getElementById('ensayoMaterial').value  = m.material||'';
+    document.getElementById('ensayoDimensiones').value = m.dimensiones||'';
+    document.getElementById('ensayoOperador').value  = m.operador||'';
+    document.getElementById('ensayoNotas').value     = m.notas||'';
+    document.getElementById('ensayoTitulo').value    = m.titulo||'';
+    updateEnsayoChip(m);
+  });
+}
+
+function saveEnsayoMeta(){
+  const meta = {
+    tipo:        document.getElementById('ensayoTipo').value,
+    material:    document.getElementById('ensayoMaterial').value,
+    dimensiones: document.getElementById('ensayoDimensiones').value,
+    operador:    document.getElementById('ensayoOperador').value,
+    notas:       document.getElementById('ensayoNotas').value,
+    titulo:      document.getElementById('ensayoTitulo').value,
+  };
+  fetch('/api/ensayo/meta',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(meta)})
+    .then(r=>r.json()).then(d=>{
+      if(d.ok){
+        _currentMeta = meta;
+        updateEnsayoChip(meta);
+        bootstrap.Modal.getInstance(document.getElementById('ensayoModal')).hide();
+      }
+    });
+}
+
+function updateEnsayoChip(meta){
+  const chip = document.getElementById('ensayoChip');
+  const tipoBadge = document.getElementById('ensayoChipTipo');
+  const tituloEl  = document.getElementById('ensayoChipTitulo');
+  chip.classList.remove('d-none');
+  tipoBadge.className = `tipo-badge tipo-${meta.tipo}`;
+  tipoBadge.textContent = TIPO_LABELS[meta.tipo]||meta.tipo;
+  tituloEl.textContent = meta.material ? `· ${meta.material}` : '';
+  if(meta.operador) tituloEl.textContent += ` · ${meta.operador}`;
+}
+
+// F2.5: subir foto después de guardar
+function uploadPendingFoto(name){
+  const input = document.getElementById('ensayoFoto');
+  if(!input.files || !input.files[0]) return;
+  const fd = new FormData();
+  fd.append('foto', input.files[0]);
+  fetch(`/api/sessions/${name}/foto`, {method:'POST', body:fd})
+    .then(r=>r.json()).then(d=>{
+      if(d.ok) console.log('Foto guardada:', d.path);
+    }).catch(()=>{});
+  input.value=''; // reset
 }
 
 // ── Wizard calibración ────────────────────────────────────────────────────────
@@ -586,20 +751,58 @@ function saveCal(){
     .then(()=>bootstrap.Modal.getInstance(document.getElementById('calModal')).hide());
 }
 
-// ── Sessions ──────────────────────────────────────────────────────────────────
+// ── Sessions F2.4 ─────────────────────────────────────────────────────────────
 function loadSessions(){
   fetch('/api/sessions').then(r=>r.json()).then(list=>{
     const el=document.getElementById('sessionList');
     if(!list.length){el.innerHTML='<div class="text-muted small">Sin sesiones guardadas</div>';return;}
     el.innerHTML=list.map(s=>{
-      const label=s.name.replace('sesion_',''), sel=selectedSes===s.name?'selected':'';
+      const meta = s.meta||{};
+      const tipo  = meta.tipo||'';
+      const tipoLabel = TIPO_LABELS[tipo]||'';
+      const tipoCss   = tipo ? `tipo-badge tipo-${tipo}` : '';
+      const label = s.name.replace(/^(comp_cubo_|comp_piso_|def_esquina_|def_total_|sesion_)/,'');
+      const sel   = selectedSes===s.name?'selected':'';
+      const materialLine = meta.material ? `<span class="text-muted" style="font-size:0.68rem">${meta.material}${meta.dimensiones?' · '+meta.dimensiones:''}</span>` : '';
+      const opLine = meta.operador ? `<span class="text-muted" style="font-size:0.68rem"> · ${meta.operador}</span>` : '';
       return `<div class="session-item ${sel}" onclick="selectSession('${s.name}')">
-        <div class="text-truncate">${label}</div>
-        <div class="text-muted" style="font-size:0.7rem">${s.rows} registros</div>
+        <div class="d-flex justify-content-between align-items-start">
+          <div class="text-truncate flex-grow-1">
+            ${tipoLabel ? `<span class="${tipoCss}">${tipoLabel}</span> ` : ''}
+            <span style="font-size:0.78rem">${label}</span>
+          </div>
+          <button class="btn btn-sm p-0 ms-1" style="font-size:0.65rem;color:var(--muted)" onclick="event.stopPropagation();showSesionDetail('${s.name}')" title="Ver metadata">ℹ</button>
+        </div>
+        <div>${materialLine}${opLine}</div>
+        <div class="text-muted" style="font-size:0.68rem">${s.rows} registros</div>
       </div>`;
     }).join('');
   });
 }
+
+function showSesionDetail(name){
+  fetch('/api/sessions').then(r=>r.json()).then(list=>{
+    const s = list.find(x=>x.name===name);
+    if(!s) return;
+    const m = s.meta||{};
+    const rows = [
+      ['Tipo', TIPO_LABELS[m.tipo]||m.tipo||'—'],
+      ['Material', m.material||'—'],
+      ['Dimensiones', m.dimensiones||'—'],
+      ['Operador', m.operador||'—'],
+      ['Notas', m.notas||'—'],
+      ['Archivo', name],
+      ['Registros', s.rows],
+      ['Timestamp', m.timestamp||'—'],
+    ];
+    document.getElementById('sesionDetailBody').innerHTML =
+      `<table class="table table-sm table-bordered mb-0">
+        ${rows.map(([k,v])=>`<tr><td class="text-muted fw-semibold" style="width:40%">${k}</td><td>${v}</td></tr>`).join('')}
+      </table>`;
+    new bootstrap.Modal(document.getElementById('sesionDetailModal')).show();
+  });
+}
+
 function selectSession(name){selectedSes=name;document.getElementById('compareBar').classList.remove('d-none');loadSessions();}
 function doCompare(){
   if(!selectedSes)return;
@@ -651,7 +854,6 @@ function loadRefs(){
       legendEl.appendChild(pill);
     });
 
-    // Update axis labels
     refChart.options.scales.x.title.text='Deformación (mm)';
     refChart.options.scales.y.title.text='Carga (kgf)';
     refChart.update();
@@ -697,14 +899,17 @@ socket.on('auto_record', e=>{
   } else {
     recording=false;document.getElementById('recBtn').textContent='⏺ Grabar';
     document.getElementById('recBadge').classList.add('d-none');
-    if(e.name)loadSessions();
+    if(e.name){
+      uploadPendingFoto(e.name);
+      loadSessions();
+    }
     const b=document.getElementById('statusBadge');
     b.className='badge bg-info text-dark';b.textContent=`✓ Guardado (${e.rows} reg)`;
     setTimeout(()=>{b.className=connected?'badge bg-success':'badge bg-secondary';b.textContent=connected?'Conectado':'Desconectado';},3000);
   }
 });
 
-buildToggles(); loadSessions(); refreshPorts(true); loadFilter();
+buildToggles(); loadSessions(); refreshPorts(true); loadFilter(); loadEnsayoMeta();
 </script>
 </body>
 </html>
