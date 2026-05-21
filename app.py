@@ -37,12 +37,14 @@ DEFAULT_FILTER = {
 }
 
 # ── state ─────────────────────────────────────────────────────────────────────
-_lock         = threading.Lock()
-_ser_running  = False
-_ser_thread   = None
-_recording    = False
-_session_buf  = []
-_serial_cfg   = {'port': '', 'baud': 115200}
+_lock                 = threading.Lock()
+_ser_running          = False
+_ser_thread           = None
+_recording            = False
+_session_buf          = []
+_serial_cfg           = {'port': '', 'baud': 115200}
+_t_record_start       = None   # F1.2: T=0 at ensayo start
+_stroke_record_offset = 0.0    # F1.3: d=0 at ensayo start
 
 # Median filter buffers (one deque per cell)
 _med_bufs = {f'celda_{i}': deque() for i in range(1, 10)}
@@ -166,7 +168,7 @@ def _save_session(buf):
 
 # ── serial worker ─────────────────────────────────────────────────────────────
 def _serial_worker():
-    global _ser_running, _recording, _session_buf, _above_count, _below_count
+    global _ser_running, _recording, _session_buf, _above_count, _below_count, _t_record_start, _stroke_record_offset
     t0  = time.time()
     ser = None
     # Reset median buffers on connect
@@ -203,8 +205,10 @@ def _serial_worker():
                             _below_count  = 0
                             if _above_count >= int(cfg['trigger_count']):
                                 with _lock:
-                                    _session_buf = []
-                                    _recording   = True
+                                    _session_buf          = []
+                                    _recording            = True
+                                    _t_record_start       = data['t']
+                                    _stroke_record_offset = data['stroke']
                                 _above_count = 0
                                 socketio.emit('auto_record', {'state': 'started'})
                         else:
@@ -228,10 +232,21 @@ def _serial_worker():
                             _below_count = 0
                 # ────────────────────────────────────────────────────────────
 
+                # F1.2/F1.3: apply relative time and stroke for live chart
+                if _recording and _t_record_start is not None:
+                    data['t_rel']      = round(data['t'] - _t_record_start, 2)
+                    data['stroke_rel'] = round(data['stroke'] - _stroke_record_offset, 2)
+                else:
+                    data['t_rel']      = 0.0
+                    data['stroke_rel'] = 0.0
+
                 socketio.emit('data', data)
                 if _recording:
                     with _lock:
-                        _session_buf.append(data)
+                        rec = dict(data)
+                        rec['t']      = data['t_rel']
+                        rec['stroke'] = data['stroke_rel']
+                        _session_buf.append(rec)
 
             except (json.JSONDecodeError, KeyError):
                 continue
@@ -295,10 +310,14 @@ def disconnect():
 
 @app.route('/api/record/start', methods=['POST'])
 def rec_start():
-    global _recording, _session_buf
+    global _recording, _session_buf, _t_record_start, _stroke_record_offset
     with _lock:
-        _session_buf = []
-        _recording   = True
+        # F1.2/F1.3: capture current t and stroke as zero reference
+        last = dict(_session_buf[-1]) if _session_buf else {}
+        _t_record_start       = last.get('t', 0.0)
+        _stroke_record_offset = last.get('stroke', 0.0)
+        _session_buf          = []
+        _recording            = True
     return jsonify({'ok': True})
 
 @app.route('/api/record/stop', methods=['POST'])

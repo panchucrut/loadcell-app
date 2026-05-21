@@ -98,6 +98,15 @@
               </div>
             </div>
             <div id="chartWrap"><canvas id="mainChart"></canvas></div>
+            <div class="d-flex flex-wrap gap-2 mt-2 align-items-center" style="font-size:12px;">
+              <span class="text-muted">Eje Y:</span>
+              <input type="number" id="chartYMin" class="form-control form-control-sm" style="width:80px" placeholder="Mín" oninput="applyChartRange()">
+              <input type="number" id="chartYMax" class="form-control form-control-sm" style="width:80px" placeholder="Máx" oninput="applyChartRange()">
+              <span class="text-muted ms-2">Eje X:</span>
+              <input type="number" id="chartXMin" class="form-control form-control-sm" style="width:80px" placeholder="Mín" oninput="applyChartRange()">
+              <input type="number" id="chartXMax" class="form-control form-control-sm" style="width:80px" placeholder="Máx" oninput="applyChartRange()">
+              <button class="btn btn-sm btn-outline-secondary" onclick="resetChartRange()">↺ Auto</button>
+            </div>
           </div>
 
           <div class="row g-2">
@@ -178,6 +187,15 @@
         </div>
         <div id="refChartWrap" class="ref-chart-wrap">
           <canvas id="refChart"></canvas>
+        </div>
+        <div class="d-flex flex-wrap gap-2 mt-2 align-items-center" style="font-size:12px;">
+          <span class="text-muted">Eje Y:</span>
+          <input type="number" id="refYMin" class="form-control form-control-sm" style="width:80px" placeholder="Mín" oninput="applyRefRange()">
+          <input type="number" id="refYMax" class="form-control form-control-sm" style="width:80px" placeholder="Máx" oninput="applyRefRange()">
+          <span class="text-muted ms-2">Eje X:</span>
+          <input type="number" id="refXMin" class="form-control form-control-sm" style="width:80px" placeholder="Mín" oninput="applyRefRange()">
+          <input type="number" id="refXMax" class="form-control form-control-sm" style="width:80px" placeholder="Máx" oninput="applyRefRange()">
+          <button class="btn btn-sm btn-outline-secondary" onclick="resetRefRange()">&#x21BA; Auto</button>
         </div>
         <div id="refLegend" class="mt-3 d-flex flex-wrap gap-2"></div>
         <div id="refEmpty" class="text-muted text-center py-4 d-none">
@@ -460,6 +478,42 @@ function togglePause(){paused=!paused;document.getElementById('pauseBtn').textCo
 function clearChart(){
   tBuf=[];cBufs=Array.from({length:9},()=>[]);sBuf=[];pBuf=[];
   chart.data.labels=[];chart.data.datasets.forEach(ds=>{if(!ds._cmp)ds.data=[];});chart.update('none');
+}
+// F1.5 — Monitor chart range controls
+function applyChartRange(){
+  const yMin=document.getElementById('chartYMin').value;
+  const yMax=document.getElementById('chartYMax').value;
+  const xMin=document.getElementById('chartXMin').value;
+  const xMax=document.getElementById('chartXMax').value;
+  chart.options.scales.y.min  = yMin!=='' ? parseFloat(yMin) : undefined;
+  chart.options.scales.y.max  = yMax!=='' ? parseFloat(yMax) : undefined;
+  chart.options.scales.x.min  = xMin!=='' ? parseFloat(xMin) : undefined;
+  chart.options.scales.x.max  = xMax!=='' ? parseFloat(xMax) : undefined;
+  chart.update('none');
+}
+function resetChartRange(){
+  ['chartYMin','chartYMax','chartXMin','chartXMax'].forEach(id=>{document.getElementById(id).value='';});
+  chart.options.scales.y.min=undefined; chart.options.scales.y.max=undefined;
+  chart.options.scales.x.min=undefined; chart.options.scales.x.max=undefined;
+  chart.update('none');
+}
+// F1.6 — Ref chart range controls
+function applyRefRange(){
+  const yMin=document.getElementById('refYMin').value;
+  const yMax=document.getElementById('refYMax').value;
+  const xMin=document.getElementById('refXMin').value;
+  const xMax=document.getElementById('refXMax').value;
+  refChart.options.scales.y.min  = yMin!=='' ? parseFloat(yMin) : undefined;
+  refChart.options.scales.y.max  = yMax!=='' ? parseFloat(yMax) : undefined;
+  refChart.options.scales.x.min  = xMin!=='' ? parseFloat(xMin) : undefined;
+  refChart.options.scales.x.max  = xMax!=='' ? parseFloat(xMax) : undefined;
+  refChart.update('none');
+}
+function resetRefRange(){
+  ['refYMin','refYMax','refXMin','refXMax'].forEach(id=>{document.getElementById(id).value='';});
+  refChart.options.scales.y.min=undefined; refChart.options.scales.y.max=undefined;
+  refChart.options.scales.x.min=undefined; refChart.options.scales.x.max=undefined;
+  refChart.update('none');
 }
 function refreshPorts(autoConnect=false){
   fetch('/api/ports').then(r=>r.json()).then(ports=>{
