@@ -2,3 +2,4 @@ flask
 flask-socketio
 pyserial
 openpyxl
+python-dotenv

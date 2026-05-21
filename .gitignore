@@ -1,5 +1,6 @@
-sessions/
+.env
+stroke_cal.json
 __pycache__/
 *.pyc
-*.pyo
-.env
+sessions/
+*.log

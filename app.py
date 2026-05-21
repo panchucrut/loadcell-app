@@ -5,6 +5,8 @@ from datetime import datetime
 from flask import Flask, render_template, jsonify, request
 from flask_socketio import SocketIO
 import serial
+from dotenv import load_dotenv
+load_dotenv()
 
 BASE             = os.path.dirname(os.path.abspath(__file__))
 CALIBRATION_FILE = os.path.join(BASE, 'calibration.json')
@@ -13,7 +15,7 @@ FILTER_FILE      = os.path.join(BASE, 'filter_config.json')
 os.makedirs(SESSIONS_DIR, exist_ok=True)
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'loadcell2024'
+app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'loadcell2024')
 socketio = SocketIO(app, cors_allowed_origins='*', async_mode='threading')
 
 DEFAULT_CAL = {
@@ -51,13 +53,24 @@ _last_raw = {}
 # Stroke calibration: raw values for 0mm and 100mm
 STROKE_CAL_FILE = os.path.join(BASE, 'stroke_cal.json')
 
+# ── in-memory caches ──────────────────────────────────────────────────────────
+_STROKE_CAL_DEFAULT = {'raw_min': 0.49, 'raw_max': 98.24, 'mm_min': 0.0, 'mm_max': 100.0}
+_stroke_cal_cache = None
+_cal_cache = None
+
 def load_stroke_cal():
-    if os.path.exists(STROKE_CAL_FILE):
-        with open(STROKE_CAL_FILE) as f:
-            return json.load(f)
-    return {'raw_min': 0.49, 'raw_max': 98.24, 'mm_min': 0.0, 'mm_max': 100.0}
+    global _stroke_cal_cache
+    if _stroke_cal_cache is None:
+        if os.path.exists(STROKE_CAL_FILE):
+            with open(STROKE_CAL_FILE) as f:
+                _stroke_cal_cache = json.load(f)
+        else:
+            _stroke_cal_cache = dict(_STROKE_CAL_DEFAULT)
+    return _stroke_cal_cache
 
 def save_stroke_cal(sc):
+    global _stroke_cal_cache
+    _stroke_cal_cache = sc
     with open(STROKE_CAL_FILE, 'w') as f:
         json.dump(sc, f, indent=2)
 
@@ -67,12 +80,18 @@ _below_count = 0
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 def load_cal():
-    if os.path.exists(CALIBRATION_FILE):
-        with open(CALIBRATION_FILE) as f:
-            return json.load(f)
-    return dict(DEFAULT_CAL)
+    global _cal_cache
+    if _cal_cache is None:
+        if os.path.exists(CALIBRATION_FILE):
+            with open(CALIBRATION_FILE) as f:
+                _cal_cache = json.load(f)
+        else:
+            _cal_cache = dict(DEFAULT_CAL)
+    return _cal_cache
 
 def save_cal(cal):
+    global _cal_cache
+    _cal_cache = cal
     with open(CALIBRATION_FILE, 'w') as f:
         json.dump(cal, f, indent=2)
 
