@@ -1,5 +1,5 @@
-tunnel: 2ccf5e13-34fb-44e8-9853-744ac846b560
-credentials-file: /Users/dex/.cloudflared/2ccf5e13-34fb-44e8-9853-744ac846b560.json
+tunnel: 7b592bb1-33a6-407f-b150-f370306adef0
+credentials-file: /Users/dex/.cloudflared/7b592bb1-33a6-407f-b150-f370306adef0.json
 
 ingress:
   - hostname: sensores.dexfloor.com
