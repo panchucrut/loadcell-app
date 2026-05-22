@@ -2,9 +2,11 @@ import os, json, time, glob, threading, csv, statistics
 from collections import deque
 from serial.tools import list_ports
 from datetime import datetime
-from flask import Flask, render_template, render_template_string, jsonify, request
+from functools import wraps
+from flask import Flask, render_template, render_template_string, jsonify, request, redirect, url_for, session
 from flask_socketio import SocketIO
 import serial
+import msal
 from dotenv import load_dotenv
 try:
     import markdown as _md
@@ -24,6 +26,33 @@ _secret = os.getenv('SECRET_KEY')
 if not _secret:
     raise RuntimeError('SECRET_KEY no definida en .env — la app no puede iniciar sin ella')
 app.config['SECRET_KEY'] = _secret
+app.config['SESSION_COOKIE_SECURE']   = True   # solo HTTPS
+app.config['SESSION_COOKIE_HTTPONLY'] = True   # no accesible desde JS
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+
+# ── Azure AD (F6) ──────────────────────────────────────────────────────────────
+AZURE_CLIENT_ID     = os.getenv('AZURE_CLIENT_ID', '')
+AZURE_CLIENT_SECRET = os.getenv('AZURE_CLIENT_SECRET', '')
+AZURE_TENANT_ID     = os.getenv('AZURE_TENANT_ID', '')
+AZURE_REDIRECT_URI  = os.getenv('AZURE_REDIRECT_URI', 'https://sensores.dexfloor.com/auth/callback')
+AZURE_AUTHORITY     = f'https://login.microsoftonline.com/{AZURE_TENANT_ID}'
+AZURE_SCOPE         = ['User.Read']
+ALLOWED_TENANT      = AZURE_TENANT_ID
+
+def _msal_app():
+    return msal.ConfidentialClientApplication(
+        AZURE_CLIENT_ID,
+        authority=AZURE_AUTHORITY,
+        client_credential=AZURE_CLIENT_SECRET,
+    )
+
+def login_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not session.get('user'):
+            return redirect(url_for('auth_login', next=request.url))
+        return f(*args, **kwargs)
+    return decorated
 _ALLOWED_ORIGINS = os.getenv('ALLOWED_ORIGINS', 'https://sensores.dexfloor.com').split(',')
 socketio = SocketIO(app, cors_allowed_origins=_ALLOWED_ORIGINS, async_mode='threading')
 
@@ -289,36 +318,93 @@ def _serial_worker():
             ser.close()
         socketio.emit('status', {'connected': False})
 
-# ── routes ─────────────────────────────────────────────────────────────────────
+# ── auth routes (F6) ───────────────────────────────────────────────────────────
+@app.route('/auth/login')
+def auth_login():
+    next_url = request.args.get('next', url_for('index'))
+    session['auth_next'] = next_url
+    auth_url = _msal_app().get_authorization_request_url(
+        AZURE_SCOPE,
+        redirect_uri=AZURE_REDIRECT_URI,
+        state=next_url,
+    )
+    return redirect(auth_url)
+
+@app.route('/auth/callback')
+def auth_callback():
+    code = request.args.get('code')
+    if not code:
+        return 'Error de autenticación: sin código', 400
+    result = _msal_app().acquire_token_by_authorization_code(
+        code,
+        scopes=AZURE_SCOPE,
+        redirect_uri=AZURE_REDIRECT_URI,
+    )
+    if 'error' in result:
+        return f'Error Azure AD: {result.get("error_description", result["error"])}', 401
+    claims = result.get('id_token_claims', {})
+    # Verificar que pertenece al tenant dexfloor.com
+    if claims.get('tid') != ALLOWED_TENANT:
+        return 'Acceso denegado: cuenta no pertenece a dexfloor.com', 403
+    session['user'] = {
+        'name':  claims.get('name', ''),
+        'email': claims.get('preferred_username', ''),
+        'tid':   claims.get('tid', ''),
+    }
+    next_url = session.pop('auth_next', url_for('index'))
+    return redirect(next_url)
+
+@app.route('/auth/logout')
+def auth_logout():
+    session.clear()
+    logout_url = (
+        f'{AZURE_AUTHORITY}/oauth2/v2.0/logout'
+        f'?post_logout_redirect_uri={url_for("index", _external=True)}'
+    )
+    return redirect(logout_url)
+
+@app.route('/auth/me')
+@login_required
+def auth_me():
+    return jsonify(session.get('user'))
+
+# ── main routes ────────────────────────────────────────────────────────────────
 @app.route('/')
+@login_required
 def index():
     return render_template('index.html')
 
 @app.route('/api/ports')
+@login_required
 def get_ports():
     ports = list_ports.comports()
     return jsonify([{'port': p.device, 'desc': p.description} for p in ports])
 
 @app.route('/api/calibration', methods=['GET'])
+@login_required
 def get_cal():
     return jsonify(load_cal())
 
 @app.route('/api/calibration', methods=['POST'])
+@login_required
 def post_cal():
     save_cal(request.json)
     return jsonify({'ok': True})
 
 @app.route('/api/filter', methods=['GET'])
+@login_required
 def get_filter():
     return jsonify(load_filter())
 
 @app.route('/api/filter', methods=['POST'])
+@login_required
 def post_filter():
     cfg = {**load_filter(), **request.json}
     save_filter(cfg)
     return jsonify({'ok': True})
 
 @app.route('/api/connect', methods=['POST'])
+@login_required
 def connect():
     global _ser_running, _ser_thread
     body = request.json or {}
@@ -334,6 +420,7 @@ def connect():
     return jsonify({'ok': True})
 
 @app.route('/api/disconnect', methods=['POST'])
+@login_required
 def disconnect():
     global _ser_running
     _ser_running = False
@@ -341,10 +428,12 @@ def disconnect():
 
 # F2: endpoint para setear metadata del ensayo
 @app.route('/api/ensayo/meta', methods=['GET'])
+@login_required
 def get_ensayo_meta():
     return jsonify({**_ensayo_meta, 'tipos': ENSAYO_TIPOS})
 
 @app.route('/api/ensayo/meta', methods=['POST'])
+@login_required
 def post_ensayo_meta():
     global _ensayo_meta
     body = request.json or {}
@@ -352,6 +441,7 @@ def post_ensayo_meta():
     return jsonify({'ok': True, 'meta': _ensayo_meta})
 
 @app.route('/api/record/start', methods=['POST'])
+@login_required
 def rec_start():
     global _recording, _session_buf, _t_record_start, _stroke_record_offset
     with _lock:
@@ -363,6 +453,7 @@ def rec_start():
     return jsonify({'ok': True})
 
 @app.route('/api/record/stop', methods=['POST'])
+@login_required
 def rec_stop():
     global _recording
     _recording = False
@@ -375,6 +466,7 @@ def rec_stop():
     return jsonify({'ok': True, 'name': name, 'rows': len(buf)})
 
 @app.route('/api/sessions')
+@login_required
 def sessions():
     files = sorted(glob.glob(os.path.join(SESSIONS_DIR, '*.csv')), reverse=True)
     out = []
@@ -397,6 +489,7 @@ def sessions():
     return jsonify(out)
 
 @app.route('/api/sessions/<name>')
+@login_required
 def session_data(name):
     name = _safe_name(name)
     path = os.path.join(SESSIONS_DIR, name + '.csv')
@@ -414,6 +507,7 @@ def session_data(name):
     return jsonify(result)
 
 @app.route('/api/sessions/<name>', methods=['DELETE'])
+@login_required
 def del_session(name):
     name = _safe_name(name)
     for ext in ('.csv', '.xlsx', '_meta.json'):
@@ -424,6 +518,7 @@ def del_session(name):
 
 # F2.5: foto del ensayo
 @app.route('/api/sessions/<name>/foto', methods=['POST'])
+@login_required
 def upload_foto(name):
     name = _safe_name(name)
     if 'foto' not in request.files:
@@ -437,6 +532,7 @@ def upload_foto(name):
     return jsonify({'ok': True, 'path': foto_path})
 
 @app.route('/api/calibrate/zero', methods=['POST'])
+@login_required
 def calibrate_zero():
     with _lock:
         raw = dict(_last_raw)
@@ -451,6 +547,7 @@ def calibrate_zero():
     return jsonify({'ok': True, 'msg': 'Zero seteado para las 9 celdas'})
 
 @app.route('/api/calibrate/stroke', methods=['POST'])
+@login_required
 def calibrate_stroke():
     with _lock:
         raw = dict(_last_raw)
@@ -469,12 +566,14 @@ def calibrate_stroke():
     return jsonify({'ok': True, 'raw': raw_val, 'stroke_cal': sc})
 
 @app.route('/api/calibrate/stroke', methods=['GET'])
+@login_required
 def get_stroke_cal():
     return jsonify(load_stroke_cal())
 
 REFERENCE_FILE = os.path.join(BASE, 'reference_data.json')
 
 @app.route('/api/references')
+@login_required
 def get_references():
     if os.path.exists(REFERENCE_FILE):
         with open(REFERENCE_FILE) as f:
@@ -484,6 +583,7 @@ def get_references():
 MANUAL_FILE = os.path.join(BASE, 'manual.md')
 
 @app.route('/manual')
+@login_required
 def manual():
     if not os.path.exists(MANUAL_FILE):
         return 'Manual no encontrado', 404
