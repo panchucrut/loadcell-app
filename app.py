@@ -20,8 +20,12 @@ FILTER_FILE      = os.path.join(BASE, 'filter_config.json')
 os.makedirs(SESSIONS_DIR, exist_ok=True)
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'loadcell2024')
-socketio = SocketIO(app, cors_allowed_origins='*', async_mode='threading')
+_secret = os.getenv('SECRET_KEY')
+if not _secret:
+    raise RuntimeError('SECRET_KEY no definida en .env — la app no puede iniciar sin ella')
+app.config['SECRET_KEY'] = _secret
+_ALLOWED_ORIGINS = os.getenv('ALLOWED_ORIGINS', 'https://sensores.dexfloor.com').split(',')
+socketio = SocketIO(app, cors_allowed_origins=_ALLOWED_ORIGINS, async_mode='threading')
 
 DEFAULT_CAL = {
     f'celda_{i}': {'offset': off, 'scale': sc}
@@ -71,7 +75,16 @@ _ensayo_meta = {
 _med_bufs = {f'celda_{i}': deque() for i in range(1, 10)}
 _last_raw = {}
 
-STROKE_CAL_FILE = os.path.join(BASE, 'stroke_cal.json')
+import re as _re
+
+def _safe_name(name: str) -> str:
+    """Allow only alphanumeric, dash, underscore. Raises 400 on bad input."""
+    if not _re.fullmatch(r'[A-Za-z0-9_\-]{1,200}', name):
+        from flask import abort
+        abort(400, 'Nombre de sesión inválido')
+    return name
+
+
 _STROKE_CAL_DEFAULT = {'raw_min': 0.49, 'raw_max': 98.24, 'mm_min': 0.0, 'mm_max': 100.0}
 _stroke_cal_cache = None
 _cal_cache = None
@@ -385,6 +398,7 @@ def sessions():
 
 @app.route('/api/sessions/<name>')
 def session_data(name):
+    name = _safe_name(name)
     path = os.path.join(SESSIONS_DIR, name + '.csv')
     if not os.path.exists(path):
         return jsonify({'error': 'not found'}), 404
@@ -401,6 +415,7 @@ def session_data(name):
 
 @app.route('/api/sessions/<name>', methods=['DELETE'])
 def del_session(name):
+    name = _safe_name(name)
     for ext in ('.csv', '.xlsx', '_meta.json'):
         p = os.path.join(SESSIONS_DIR, name + ext)
         if os.path.exists(p):
@@ -410,10 +425,13 @@ def del_session(name):
 # F2.5: foto del ensayo
 @app.route('/api/sessions/<name>/foto', methods=['POST'])
 def upload_foto(name):
+    name = _safe_name(name)
     if 'foto' not in request.files:
         return jsonify({'ok': False, 'msg': 'sin archivo'}), 400
     f = request.files['foto']
-    ext = os.path.splitext(f.filename)[1].lower() or '.jpg'
+    ext = os.path.splitext(f.filename)[1].lower()
+    if ext not in ('.jpg', '.jpeg', '.png', '.heic', '.heif'):
+        return jsonify({'ok': False, 'msg': 'Tipo de archivo no permitido'}), 400
     foto_path = os.path.join(SESSIONS_DIR, name + '_foto' + ext)
     f.save(foto_path)
     return jsonify({'ok': True, 'path': foto_path})
