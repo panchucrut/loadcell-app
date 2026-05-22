@@ -117,15 +117,35 @@
               <span id="ensayoChipTipo" class="tipo-badge"></span>
               <span id="ensayoChipTitulo" class="text-muted ms-1" style="font-size:0.75rem"></span>
             </div>
-            <div id="chartWrap"><canvas id="mainChart"></canvas></div>
-            <div class="d-flex flex-wrap gap-2 mt-2 align-items-center" style="font-size:12px;">
-              <span class="text-muted">Eje Y:</span>
-              <input type="number" id="chartYMin" class="form-control form-control-sm" style="width:80px" placeholder="Mín" oninput="applyChartRange()">
-              <input type="number" id="chartYMax" class="form-control form-control-sm" style="width:80px" placeholder="Máx" oninput="applyChartRange()">
-              <span class="text-muted ms-2">Eje X:</span>
-              <input type="number" id="chartXMin" class="form-control form-control-sm" style="width:80px" placeholder="Mín" oninput="applyChartRange()">
-              <input type="number" id="chartXMax" class="form-control form-control-sm" style="width:80px" placeholder="Máx" oninput="applyChartRange()">
-              <button class="btn btn-sm btn-outline-secondary" onclick="resetChartRange()">↺ Auto</button>
+            <!-- Chart 1: Carga vs Tiempo -->
+            <div class="fw-semibold text-muted mb-1" style="font-size:0.75rem">Carga vs Tiempo</div>
+            <div style="height:220px;position:relative"><canvas id="chartCarga"></canvas></div>
+            <div class="d-flex flex-wrap gap-2 mt-1 mb-3 align-items-center" style="font-size:12px;">
+              <span class="text-muted">Y:</span>
+              <input type="number" id="c1YMin" class="form-control form-control-sm" style="width:72px" placeholder="Mín" oninput="applyRange(chartCarga,'c1')">
+              <input type="number" id="c1YMax" class="form-control form-control-sm" style="width:72px" placeholder="Máx" oninput="applyRange(chartCarga,'c1')">
+              <button class="btn btn-sm btn-outline-secondary" onclick="resetRange(chartCarga,'c1')">↺</button>
+            </div>
+            <!-- Chart 2: Distancia vs Tiempo -->
+            <div class="fw-semibold text-muted mb-1" style="font-size:0.75rem">Distancia vs Tiempo</div>
+            <div style="height:160px;position:relative"><canvas id="chartDist"></canvas></div>
+            <div class="d-flex flex-wrap gap-2 mt-1 mb-3 align-items-center" style="font-size:12px;">
+              <span class="text-muted">Y:</span>
+              <input type="number" id="c2YMin" class="form-control form-control-sm" style="width:72px" placeholder="Mín" oninput="applyRange(chartDist,'c2')">
+              <input type="number" id="c2YMax" class="form-control form-control-sm" style="width:72px" placeholder="Máx" oninput="applyRange(chartDist,'c2')">
+              <button class="btn btn-sm btn-outline-secondary" onclick="resetRange(chartDist,'c2')">↺</button>
+            </div>
+            <!-- Chart 3: Carga vs Distancia -->
+            <div class="fw-semibold text-muted mb-1" style="font-size:0.75rem">Carga vs Distancia</div>
+            <div style="height:220px;position:relative"><canvas id="chartCargaDist"></canvas></div>
+            <div class="d-flex flex-wrap gap-2 mt-1 align-items-center" style="font-size:12px;">
+              <span class="text-muted">Y:</span>
+              <input type="number" id="c3YMin" class="form-control form-control-sm" style="width:72px" placeholder="Mín" oninput="applyRange(chartCargaDist,'c3')">
+              <input type="number" id="c3YMax" class="form-control form-control-sm" style="width:72px" placeholder="Máx" oninput="applyRange(chartCargaDist,'c3')">
+              <span class="text-muted ms-1">X:</span>
+              <input type="number" id="c3XMin" class="form-control form-control-sm" style="width:72px" placeholder="Mín" oninput="applyRange(chartCargaDist,'c3')">
+              <input type="number" id="c3XMax" class="form-control form-control-sm" style="width:72px" placeholder="Máx" oninput="applyRange(chartCargaDist,'c3')">
+              <button class="btn btn-sm btn-outline-secondary" onclick="resetRange(chartCargaDist,'c3')">↺</button>
             </div>
           </div>
 
@@ -146,8 +166,8 @@
             </div>
             <div class="col-6 col-sm-3">
               <div class="stat-card">
-                <div class="text-muted mb-1">Stroke</div>
-                <div class="stat-val text-info" id="sStroke">—</div>
+                <div class="text-muted mb-1">Distancia</div>
+                <div class="stat-val text-info" id="sDist">—</div>
                 <div class="stat-unit">mm</div>
               </div>
             </div>
@@ -509,27 +529,57 @@ let tBuf=[], cBufs=Array.from({length:9},()=>[]), sBuf=[], pBuf=[];
 let _currentMeta = {tipo:'comp_cubo', material:'', dimensiones:'', operador:'', notas:'', titulo:''};
 let _pendingFotoName = null; // nombre de sesión al que subir foto
 
-// ── Main chart ──────────────────────────────────────────────────────────────
-const LIVE_DS = [
-  ...Array.from({length:9}, (_,i) => ({
-    label:`C${i+1}`, data:[], borderColor:COLORS[i], backgroundColor:COLORS[i]+'15',
-    borderWidth:1.5, pointRadius:0, tension:0.25, yAxisID:'y'
-  })),
-  {label:'Stroke',  data:[], borderColor:'#0891b2', borderWidth:1.5, pointRadius:0, tension:0.25, yAxisID:'y2'},
-  {label:'Presión', data:[], borderColor:'#dc2626', borderWidth:1.5, pointRadius:0, tension:0.25, yAxisID:'y2'},
-];
+// ── Chart 1: Carga vs Tiempo ─────────────────────────────────────────────────
+const CELL_DS = Array.from({length:9}, (_,i) => ({
+  label:`C${i+1}`, data:[], borderColor:COLORS[i], backgroundColor:COLORS[i]+'15',
+  borderWidth:1.5, pointRadius:0, tension:0.25,
+}));
 
-const chart = new Chart(document.getElementById('mainChart').getContext('2d'), {
-  type:'line', data:{labels:[], datasets:LIVE_DS},
+const chartCarga = new Chart(document.getElementById('chartCarga').getContext('2d'), {
+  type:'line', data:{labels:[], datasets:CELL_DS},
   options:{
     animation:false, responsive:true, maintainAspectRatio:false,
     interaction:{mode:'index', intersect:false},
     scales:{
       x:{ticks:{color:'#57606a', maxTicksLimit:8, callback:v=>v+'s'}, grid:{color:'#e8ecf0'}},
       y:{title:{display:true, text:'Carga (kg)', color:'#57606a'}, ticks:{color:'#57606a'}, grid:{color:'#e8ecf0'}},
-      y2:{position:'right', title:{display:true, text:'Stroke mm / Presión bar', color:'#57606a'}, ticks:{color:'#57606a'}, grid:{drawOnChartArea:false}},
     },
     plugins:{legend:{labels:{color:'#24292f', boxWidth:10, font:{size:11}}}},
+  }
+});
+
+// ── Chart 2: Distancia vs Tiempo ─────────────────────────────────────────────
+const chartDist = new Chart(document.getElementById('chartDist').getContext('2d'), {
+  type:'line',
+  data:{labels:[], datasets:[{
+    label:'Distancia', data:[], borderColor:'#0891b2', backgroundColor:'#0891b215',
+    borderWidth:1.5, pointRadius:0, tension:0.25,
+  }]},
+  options:{
+    animation:false, responsive:true, maintainAspectRatio:false,
+    scales:{
+      x:{ticks:{color:'#57606a', maxTicksLimit:8, callback:v=>v+'s'}, grid:{color:'#e8ecf0'}},
+      y:{title:{display:true, text:'Distancia (mm)', color:'#57606a'}, ticks:{color:'#57606a'}, grid:{color:'#e8ecf0'}},
+    },
+    plugins:{legend:{display:false}},
+  }
+});
+
+// ── Chart 3: Carga vs Distancia ───────────────────────────────────────────────
+const chartCargaDist = new Chart(document.getElementById('chartCargaDist').getContext('2d'), {
+  type:'scatter',
+  data:{datasets:[{
+    label:'Carga vs Distancia', data:[], borderColor:'#7c3aed', backgroundColor:'#7c3aed22',
+    showLine:true, borderWidth:1.5, pointRadius:0,
+  }]},
+  options:{
+    animation:false, responsive:true, maintainAspectRatio:false,
+    scales:{
+      x:{title:{display:true, text:'Distancia (mm)', color:'#57606a'}, ticks:{color:'#57606a'}, grid:{color:'#e8ecf0'}},
+      y:{title:{display:true, text:'Carga total (kg)', color:'#57606a'}, ticks:{color:'#57606a'}, grid:{color:'#e8ecf0'}},
+    },
+    plugins:{legend:{display:false}},
+    elements:{point:{radius:0}},
   }
 });
 
@@ -540,7 +590,7 @@ const refChart = new Chart(document.getElementById('refChart').getContext('2d'),
   options:{
     animation:false, responsive:true, maintainAspectRatio:false,
     scales:{
-      x:{title:{display:true, text:'Stroke (mm)', color:'#57606a'}, ticks:{color:'#57606a'}, grid:{color:'#e8ecf0'}},
+      x:{title:{display:true, text:'Distancia (mm)', color:'#57606a'}, ticks:{color:'#57606a'}, grid:{color:'#e8ecf0'}},
       y:{title:{display:true, text:'Carga total (kg)', color:'#57606a'}, ticks:{color:'#57606a'}, grid:{color:'#e8ecf0'}},
     },
     plugins:{
@@ -551,27 +601,46 @@ const refChart = new Chart(document.getElementById('refChart').getContext('2d'),
   }
 });
 
-// ── Toggles ──────────────────────────────────────────────────────────────────
+// ── Toggles (solo celdas) ─────────────────────────────────────────────────────
 function buildToggles() {
   const wrap = document.getElementById('toggleWrap');
-  const entries = [
-    ...Array.from({length:9}, (_,i)=>({label:`Celda ${i+1}`, idx:i, color:COLORS[i]})),
-    {label:'Stroke', idx:9, color:'#0891b2'},
-    {label:'Presión', idx:10, color:'#dc2626'},
-  ];
-  wrap.innerHTML = entries.map(e=>
-    `<button class="cell-btn" style="background:${e.color}18;border:1px solid ${e.color};color:${e.color}"
-             onclick="toggleChannel(${e.idx},this)">${e.label}</button>`
+  wrap.innerHTML = Array.from({length:9}, (_,i) =>
+    `<button class="cell-btn" style="background:${COLORS[i]}18;border:1px solid ${COLORS[i]};color:${COLORS[i]}"
+             onclick="toggleChannel(${i},this)">Celda ${i+1}</button>`
   ).join('');
 }
 function toggleChannel(idx,btn) {
-  const ds=chart.data.datasets[idx]; ds.hidden=!ds.hidden;
-  btn.classList.toggle('off',ds.hidden); chart.update('none');
+  const ds=chartCarga.data.datasets[idx]; ds.hidden=!ds.hidden;
+  btn.classList.toggle('off',ds.hidden); chartCarga.update('none');
 }
 function setAll(show) {
-  chart.data.datasets.forEach(ds=>{if(!ds._cmp)ds.hidden=!show;});
+  chartCarga.data.datasets.forEach(ds=>{ds.hidden=!show;});
   document.querySelectorAll('.cell-btn').forEach(b=>b.classList.toggle('off',!show));
-  chart.update('none');
+  chartCarga.update('none');
+}
+
+// ── Range helpers ─────────────────────────────────────────────────────────────
+function applyRange(ch, prefix){
+  const yMin=document.getElementById(prefix+'YMin').value;
+  const yMax=document.getElementById(prefix+'YMax').value;
+  ch.options.scales.y.min = yMin!=='' ? parseFloat(yMin) : undefined;
+  ch.options.scales.y.max = yMax!=='' ? parseFloat(yMax) : undefined;
+  if(prefix==='c3'){
+    const xMin=document.getElementById('c3XMin').value;
+    const xMax=document.getElementById('c3XMax').value;
+    ch.options.scales.x.min = xMin!=='' ? parseFloat(xMin) : undefined;
+    ch.options.scales.x.max = xMax!=='' ? parseFloat(xMax) : undefined;
+  }
+  ch.update('none');
+}
+function resetRange(ch, prefix){
+  [prefix+'YMin', prefix+'YMax'].forEach(id=>{document.getElementById(id).value='';});
+  ch.options.scales.y.min=undefined; ch.options.scales.y.max=undefined;
+  if(prefix==='c3'){
+    ['c3XMin','c3XMax'].forEach(id=>{document.getElementById(id).value='';});
+    ch.options.scales.x.min=undefined; ch.options.scales.x.max=undefined;
+  }
+  ch.update('none');
 }
 
 // ── Socket ───────────────────────────────────────────────────────────────────
@@ -605,10 +674,20 @@ function getSlice(){
 }
 function renderChart(){
   const{t,cells,s,p}=getSlice();
-  chart.data.labels=t.map(v=>v.toFixed(1));
-  cells.forEach((c,i)=>chart.data.datasets[i].data=c);
-  chart.data.datasets[9].data=s; chart.data.datasets[10].data=p;
-  chart.update('none');
+  const labels=t.map(v=>v.toFixed(1));
+  // Chart 1: celdas vs tiempo
+  chartCarga.data.labels=labels;
+  cells.forEach((c,i)=>{ chartCarga.data.datasets[i].data=c; });
+  chartCarga.update('none');
+  // Chart 2: distancia vs tiempo
+  chartDist.data.labels=labels;
+  chartDist.data.datasets[0].data=s;
+  chartDist.update('none');
+  // Chart 3: carga total vs distancia (scatter, in-place)
+  const totalArr=s.map((_,i)=>cells.reduce((acc,c)=>acc+(c[i]||0),0));
+  const pts=s.map((x,i)=>({x:parseFloat(x)||0, y:totalArr[i]}));
+  chartCargaDist.data.datasets[0].data=pts;
+  chartCargaDist.update('none');
 }
 function updateStats(d){
   const vals=CELL_KEYS.map(k=>d[k]), total=vals.reduce((a,b)=>a+b,0);
@@ -616,7 +695,7 @@ function updateStats(d){
   document.getElementById('sTotal').textContent=total.toFixed(1);
   document.getElementById('sMaxVal').textContent=maxV.toFixed(1);
   document.getElementById('sMaxName').textContent=`Celda ${maxI+1}`;
-  document.getElementById('sStroke').textContent=d.stroke.toFixed(1);
+  document.getElementById('sDist').textContent=d.stroke.toFixed(1);
   document.getElementById('sPress').textContent=d.pressure.toFixed(1);
 }
 
@@ -624,25 +703,11 @@ function updateStats(d){
 function togglePause(){paused=!paused;document.getElementById('pauseBtn').textContent=paused?'▶ Reanudar':'⏸ Pausar';}
 function clearChart(){
   tBuf=[];cBufs=Array.from({length:9},()=>[]);sBuf=[];pBuf=[];
-  chart.data.labels=[];chart.data.datasets.forEach(ds=>{if(!ds._cmp)ds.data=[];});chart.update('none');
+  chartCarga.data.labels=[];chartCarga.data.datasets.forEach(ds=>{ds.data=[];});chartCarga.update('none');
+  chartDist.data.labels=[];chartDist.data.datasets[0].data=[];chartDist.update('none');
+  chartCargaDist.data.datasets[0].data=[];chartCargaDist.update('none');
 }
-function applyChartRange(){
-  const yMin=document.getElementById('chartYMin').value;
-  const yMax=document.getElementById('chartYMax').value;
-  const xMin=document.getElementById('chartXMin').value;
-  const xMax=document.getElementById('chartXMax').value;
-  chart.options.scales.y.min  = yMin!=='' ? parseFloat(yMin) : undefined;
-  chart.options.scales.y.max  = yMax!=='' ? parseFloat(yMax) : undefined;
-  chart.options.scales.x.min  = xMin!=='' ? parseFloat(xMin) : undefined;
-  chart.options.scales.x.max  = xMax!=='' ? parseFloat(xMax) : undefined;
-  chart.update('none');
-}
-function resetChartRange(){
-  ['chartYMin','chartYMax','chartXMin','chartXMax'].forEach(id=>{document.getElementById(id).value='';});
-  chart.options.scales.y.min=undefined; chart.options.scales.y.max=undefined;
-  chart.options.scales.x.min=undefined; chart.options.scales.x.max=undefined;
-  chart.update('none');
-}
+
 function applyRefRange(){
   const yMin=document.getElementById('refYMin').value;
   const yMax=document.getElementById('refYMax').value;
@@ -848,17 +913,17 @@ function selectSession(name){selectedSes=name;document.getElementById('compareBa
 function doCompare(){
   if(!selectedSes)return;
   fetch(`/api/sessions/${selectedSes}`).then(r=>r.json()).then(data=>{
-    chart.data.datasets=chart.data.datasets.filter(d=>!d._cmp);
+    chartCarga.data.datasets=chartCarga.data.datasets.filter(d=>!d._cmp);
     for(let i=0;i<9;i++){
       const k=`celda_${i+1}`;if(!data[k])continue;
-      chart.data.datasets.push({label:`C${i+1} ◌`,data:data[k],borderColor:COLORS[i],borderWidth:1,
-        borderDash:[5,4],pointRadius:0,tension:0.25,yAxisID:'y',_cmp:true});
+      chartCarga.data.datasets.push({label:`C${i+1} ◌`,data:data[k],borderColor:COLORS[i],borderWidth:1,
+        borderDash:[5,4],pointRadius:0,tension:0.25,_cmp:true});
     }
-    chart.update('none');
+    chartCarga.update('none');
   });
 }
 function clearCompare(){
-  chart.data.datasets=chart.data.datasets.filter(d=>!d._cmp);chart.update('none');
+  chartCarga.data.datasets=chartCarga.data.datasets.filter(d=>!d._cmp);chartCarga.update('none');
   selectedSes=null;document.getElementById('compareBar').classList.add('d-none');loadSessions();
 }
 

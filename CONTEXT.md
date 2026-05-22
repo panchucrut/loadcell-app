@@ -45,11 +45,17 @@ Flask + SocketIO · Chart.js · Arduino Mega + 9× HX711 · openpyxl + csv (sin 
 - Registrar app en portal.azure.com con redirect URI: `https://sensores.dexfloor.com/auth/callback`
 - msal en Flask, @login_required, restricción a tenant dexfloor.com
 
-## Estado actual del Monitor (deuda técnica)
-- `mainChart` tiene 1 canvas con 9 celdas + Stroke + Presión en doble eje Y
-- **Pendiente**: separar en 2 gráficos: Chart1 = solo celdas, Chart2 = Carga vs Stroke (tiempo real)
-- Stroke y Presión deben removerse de Chart1
-- Chart2 debe actualizarse in-place (no reasignar `chart2.data.datasets`) para evitar bug de no render
+## Monitor — 3 gráficos SIEMPRE (invariable)
+| # | Canvas ID | Contenido | Ejes |
+|---|-----------|-----------|------|
+| 1 | `chartCarga` | 9 celdas de carga (kg) vs Tiempo (s) | X=tiempo, Y=kg |
+| 2 | `chartDist` | Distancia (mm) vs Tiempo (s) | X=tiempo, Y=mm |
+| 3 | `chartCargaDist` | Carga total (kg) vs Distancia (mm) | X=mm, Y=kg |
+
+**Reglas:**
+- "Stroke" NO existe en la UI — siempre llamar "Distancia" (variable interna puede seguir siendo stroke)
+- Presión NO aparece en gráficos de Monitor (solo en stat-card)
+- Chart3 debe actualizarse in-place (no reasignar `.data.datasets`) para evitar bug de no render
 
 ## Reglas invariables
 - Sin pandas — usar `csv` y `openpyxl`
