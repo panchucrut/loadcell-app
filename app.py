@@ -19,6 +19,7 @@ BASE             = os.path.dirname(os.path.abspath(__file__))
 CALIBRATION_FILE = os.path.join(BASE, 'calibration.json')
 SESSIONS_DIR     = os.path.join(BASE, 'sessions')
 FILTER_FILE      = os.path.join(BASE, 'filter_config.json')
+STROKE_CAL_FILE  = os.path.join(BASE, 'stroke_cal.json')
 os.makedirs(SESSIONS_DIR, exist_ok=True)
 
 app = Flask(__name__)
