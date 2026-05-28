@@ -222,15 +222,16 @@
     <div class="tab-pane fade" id="tabAnalisis">
       <div class="row g-3">
         <div class="col-xl-9">
-          <div class="card p-3">
+          <!-- Chart A: Carga vs Deformación (existente) -->
+          <div class="card p-3 mb-3">
             <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
               <span class="fw-semibold">Carga vs Deformación — Comparativo</span>
               <div class="d-flex gap-2">
-                <button class="btn btn-sm btn-outline-secondary" onclick="exportAnalisisPNG()">⬇ PNG</button>
+                <button class="btn btn-sm btn-outline-secondary" onclick="exportAnalisisPNG('analisisChart')">⬇ PNG</button>
                 <button class="btn btn-sm btn-outline-danger" onclick="clearAnalisis()">🗑 Limpiar</button>
               </div>
             </div>
-            <div id="analisisChartWrap" style="height:400px;position:relative">
+            <div id="analisisChartWrap" style="height:300px;position:relative">
               <canvas id="analisisChart"></canvas>
             </div>
             <div class="d-flex flex-wrap gap-2 mt-2 align-items-center" style="font-size:12px;">
@@ -242,8 +243,25 @@
               <input type="number" id="anXMax" class="form-control form-control-sm" style="width:80px" placeholder="Máx" oninput="applyAnalisisRange()">
               <button class="btn btn-sm btn-outline-secondary" onclick="resetAnalisisRange()">↺ Auto</button>
             </div>
-            <!-- F3.4 leyenda con toggle F3.6 -->
             <div id="analisisLegend" class="mt-3 d-flex flex-wrap gap-2"></div>
+          </div>
+
+          <!-- Chart B: Carga vs Tiempo -->
+          <div class="card p-3 mb-3">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+              <span class="fw-semibold">Carga vs Tiempo — Comparativo</span>
+              <button class="btn btn-sm btn-outline-secondary" onclick="exportAnalisisPNG('anChartCargaT')">⬇ PNG</button>
+            </div>
+            <div style="height:250px;position:relative"><canvas id="anChartCargaT"></canvas></div>
+          </div>
+
+          <!-- Chart C: Distancia vs Tiempo -->
+          <div class="card p-3">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+              <span class="fw-semibold">Distancia vs Tiempo — Comparativo</span>
+              <button class="btn btn-sm btn-outline-secondary" onclick="exportAnalisisPNG('anChartDistT')">⬇ PNG</button>
+            </div>
+            <div style="height:250px;position:relative"><canvas id="anChartDistT"></canvas></div>
           </div>
         </div>
 
@@ -341,12 +359,49 @@
         </div>
 
         <div class="col-md-6">
-          <div class="card p-3">
+          <div class="card p-3 mb-3">
             <div class="fw-semibold mb-3">Offsets y escalas manuales</div>
             <p class="text-muted small">Edita directamente los valores de calibración si necesitas ajuste fino.</p>
             <button class="btn btn-sm btn-outline-primary w-100" data-bs-toggle="modal" data-bs-target="#calModal">
               Editar offsets y escalas
             </button>
+          </div>
+
+          <!-- T6: Alarma de límite -->
+          <div class="card p-3">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+              <span class="fw-semibold">🔔 Alarma de límite</span>
+              <div class="d-flex gap-2 align-items-center">
+                <div class="form-check form-switch mb-0">
+                  <input class="form-check-input" type="checkbox" id="alarmEnabled">
+                  <label class="form-check-label" for="alarmEnabled" style="font-size:0.78rem">Activar</label>
+                </div>
+              </div>
+            </div>
+            <div class="mb-2">
+              <label class="form-label mb-0 text-muted" style="font-size:0.75rem">Sensor a vigilar</label>
+              <select class="form-select form-select-sm" id="alarmSensor">
+                <option value="total">Carga total</option>
+                <option value="celda_1">Celda 1</option>
+                <option value="celda_2">Celda 2</option>
+                <option value="celda_3">Celda 3</option>
+                <option value="celda_4">Celda 4</option>
+                <option value="celda_5">Celda 5</option>
+                <option value="celda_6">Celda 6</option>
+                <option value="celda_7">Celda 7</option>
+                <option value="celda_8">Celda 8</option>
+                <option value="celda_9">Celda 9</option>
+                <option value="pressure">Presión (bar)</option>
+                <option value="dimension">Distancia (mm)</option>
+              </select>
+            </div>
+            <div class="mb-2">
+              <label class="form-label mb-0 text-muted" style="font-size:0.75rem">
+                Umbral: <strong id="lblAlarmThreshold">500</strong>
+              </label>
+              <input type="number" class="form-control form-control-sm" id="inpAlarmThreshold" value="500" min="0" step="10">
+            </div>
+            <div class="text-muted" style="font-size:0.68rem">Cuando el valor del sensor alcance o supere este umbral, se emitirá una alerta sonora y visual.</div>
           </div>
         </div>
       </div>
@@ -443,10 +498,10 @@
         <div class="d-flex align-items-start gap-3 mb-4">
           <span class="step-badge mt-1">2</span>
           <div class="flex-grow-1">
-            <div class="fw-semibold mb-1">Stroke — posición mínima (0 mm)</div>
+            <div class="fw-semibold mb-1">Distancia — posición mínima (0 mm)</div>
             <p class="text-muted small mb-2">Lleva el sensor a la posición mínima sin comprimir.</p>
-            <button class="btn btn-sm btn-outline-secondary" onclick="doStroke('min')">Setear 0 mm</button>
-            <span id="strokeMinStatus" class="ms-2 small text-muted"></span>
+            <button class="btn btn-sm btn-outline-secondary" onclick="doDimension('min')">Setear 0 mm</button>
+            <span id="dimMinStatus" class="ms-2 small text-muted"></span>
           </div>
         </div>
 
@@ -455,10 +510,10 @@
         <div class="d-flex align-items-start gap-3 mb-2">
           <span class="step-badge mt-1">3</span>
           <div class="flex-grow-1">
-            <div class="fw-semibold mb-1">Stroke — posición máxima (100 mm)</div>
+            <div class="fw-semibold mb-1">Distancia — posición máxima (100 mm)</div>
             <p class="text-muted small mb-2">Lleva el sensor al recorrido máximo.</p>
-            <button class="btn btn-sm btn-outline-secondary" onclick="doStroke('max')">Setear 100 mm</button>
-            <span id="strokeMaxStatus" class="ms-2 small text-muted"></span>
+            <button class="btn btn-sm btn-outline-secondary" onclick="doDimension('max')">Setear 100 mm</button>
+            <span id="dimMaxStatus" class="ms-2 small text-muted"></span>
           </div>
         </div>
 
@@ -601,22 +656,58 @@ const refChart = new Chart(document.getElementById('refChart').getContext('2d'),
   }
 });
 
-// ── Toggles (solo celdas) ─────────────────────────────────────────────────────
+// ── Toggles (celdas + presión + distancia) ───────────────────────────────────
+const EXTRA_CHANNELS = [
+  { key: 'distancia', label: 'Distancia', color: '#0891b2', chart: 'chartDist', dsIdx: 0 },
+  { key: 'presion',   label: 'Presión',   color: '#dc2626', chart: 'chartCarga', dsIdx: -1 },
+];
+let _pressureDS = null; // dataset de presión inyectado en chartCarga
+
 function buildToggles() {
   const wrap = document.getElementById('toggleWrap');
-  wrap.innerHTML = Array.from({length:9}, (_,i) =>
+  let html = Array.from({length:9}, (_,i) =>
     `<button class="cell-btn" style="background:${COLORS[i]}18;border:1px solid ${COLORS[i]};color:${COLORS[i]}"
-             onclick="toggleChannel(${i},this)">Celda ${i+1}</button>`
+             onclick="toggleChannel(${i},this)" data-type="celda">Celda ${i+1}</button>`
   ).join('');
+  html += '<hr class="my-1">';
+  html += `<button class="cell-btn" style="background:#0891b218;border:1px solid #0891b2;color:#0891b2"
+             onclick="toggleExtra('distancia',this)" data-type="extra">Distancia</button>`;
+  html += `<button class="cell-btn" style="background:#dc262618;border:1px solid #dc2626;color:#dc2626"
+             onclick="toggleExtra('presion',this)" data-type="extra">Presión</button>`;
+  wrap.innerHTML = html;
+
+  // Inyectar dataset de presión en Chart 1 (eje Y2)
+  if(!_pressureDS) {
+    _pressureDS = {
+      label:'Presión (bar)', data:[], borderColor:'#dc2626', backgroundColor:'#dc262615',
+      borderWidth:1.5, pointRadius:0, tension:0.25, yAxisID:'yPressure', _extra:true,
+    };
+    chartCarga.data.datasets.push(_pressureDS);
+    chartCarga.options.scales.yPressure = {
+      position:'right', title:{display:true, text:'Presión (bar)', color:'#dc2626'},
+      ticks:{color:'#dc2626'}, grid:{drawOnChartArea:false},
+    };
+    chartCarga.update('none');
+  }
 }
 function toggleChannel(idx,btn) {
   const ds=chartCarga.data.datasets[idx]; ds.hidden=!ds.hidden;
   btn.classList.toggle('off',ds.hidden); chartCarga.update('none');
 }
+function toggleExtra(key,btn) {
+  if(key==='distancia') {
+    const ds=chartDist.data.datasets[0]; ds.hidden=!ds.hidden;
+    btn.classList.toggle('off',ds.hidden); chartDist.update('none');
+  } else if(key==='presion' && _pressureDS) {
+    _pressureDS.hidden=!_pressureDS.hidden;
+    btn.classList.toggle('off',_pressureDS.hidden); chartCarga.update('none');
+  }
+}
 function setAll(show) {
   chartCarga.data.datasets.forEach(ds=>{ds.hidden=!show;});
+  chartDist.data.datasets.forEach(ds=>{ds.hidden=!show;});
   document.querySelectorAll('.cell-btn').forEach(b=>b.classList.toggle('off',!show));
-  chartCarga.update('none');
+  chartCarga.update('none'); chartDist.update('none');
 }
 
 // ── Range helpers ─────────────────────────────────────────────────────────────
@@ -645,13 +736,72 @@ function resetRange(ch, prefix){
 
 // ── Socket ───────────────────────────────────────────────────────────────────
 const socket = io();
+
+// ── T6: Alarm system ────────────────────────────────────────────────────────
+let _alarmTriggered = false;
+let _alarmAudioCtx = null;
+function playAlarmSound() {
+  try {
+    if (!_alarmAudioCtx) _alarmAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const ctx = _alarmAudioCtx;
+    // 3 beeps
+    [0, 0.25, 0.5].forEach(delay => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.frequency.value = 880;
+      osc.type = 'square';
+      gain.gain.value = 0.3;
+      osc.start(ctx.currentTime + delay);
+      osc.stop(ctx.currentTime + delay + 0.15);
+    });
+  } catch(e) { console.warn('Audio alarm failed:', e); }
+}
+function checkAlarm(d) {
+  const enabled = document.getElementById('alarmEnabled')?.checked;
+  if (!enabled) { _alarmTriggered = false; return; }
+  const sensor = document.getElementById('alarmSensor').value;
+  const threshold = parseFloat(document.getElementById('inpAlarmThreshold').value) || 0;
+  let val = 0;
+  if (sensor === 'total') {
+    val = CELL_KEYS.reduce((s, k) => s + (d[k] || 0), 0);
+  } else {
+    val = d[sensor] || 0;
+  }
+  if (val >= threshold && !_alarmTriggered) {
+    _alarmTriggered = true;
+    playAlarmSound();
+    // Show non-blocking overlay alert
+    showAlarmPopup(sensor, val, threshold);
+  } else if (val < threshold * 0.9) {
+    _alarmTriggered = false;
+  }
+}
+function showAlarmPopup(sensor, val, threshold) {
+  // Remove existing if any
+  const existing = document.getElementById('alarmOverlay');
+  if (existing) existing.remove();
+  const sensorLabel = sensor === 'total' ? 'Carga total' : sensor === 'pressure' ? 'Presión' : sensor === 'dimension' ? 'Distancia' : sensor.replace('_',' ').replace('celda','Celda');
+  const div = document.createElement('div');
+  div.id = 'alarmOverlay';
+  div.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(220,38,38,0.15);z-index:9999;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(2px)';
+  div.innerHTML = `<div style="background:white;border:3px solid #dc2626;border-radius:12px;padding:32px 48px;text-align:center;box-shadow:0 8px 32px rgba(0,0,0,0.3)">
+    <div style="font-size:2.5rem;margin-bottom:8px">🚨</div>
+    <div style="font-size:1.4rem;font-weight:700;color:#dc2626;margin-bottom:8px">ALERTA — LÍMITE ALCANZADO</div>
+    <div style="font-size:1.1rem;margin-bottom:4px"><strong>${sensorLabel}</strong>: ${val.toFixed(1)}</div>
+    <div style="font-size:0.9rem;color:#666;margin-bottom:16px">Umbral: ${threshold}</div>
+    <button onclick="this.parentElement.parentElement.remove()" style="background:#dc2626;color:white;border:none;padding:8px 32px;border-radius:6px;font-size:1rem;cursor:pointer">Entendido</button>
+  </div>`;
+  document.body.appendChild(div);
+}
+
 socket.on('data', d=>{
   if(paused)return;
   tBuf.push(d.t);
   CELL_KEYS.forEach((k,i)=>cBufs[i].push(d[k]));
-  sBuf.push(d.stroke); pBuf.push(d.pressure);
+  sBuf.push(d.dimension); pBuf.push(d.pressure);
   if(tBuf.length>MAX_PTS){tBuf.shift();cBufs.forEach(b=>b.shift());sBuf.shift();pBuf.shift();}
-  renderChart(); updateStats(d);
+  renderChart(); updateStats(d); checkAlarm(d);
 });
 socket.on('status', s=>{
   connected=s.connected;
@@ -675,9 +825,10 @@ function getSlice(){
 function renderChart(){
   const{t,cells,s,p}=getSlice();
   const labels=t.map(v=>v.toFixed(1));
-  // Chart 1: celdas vs tiempo
+  // Chart 1: celdas vs tiempo + presión
   chartCarga.data.labels=labels;
   cells.forEach((c,i)=>{ chartCarga.data.datasets[i].data=c; });
+  if(_pressureDS) _pressureDS.data=p;
   chartCarga.update('none');
   // Chart 2: distancia vs tiempo
   chartDist.data.labels=labels;
@@ -695,7 +846,7 @@ function updateStats(d){
   document.getElementById('sTotal').textContent=total.toFixed(1);
   document.getElementById('sMaxVal').textContent=maxV.toFixed(1);
   document.getElementById('sMaxName').textContent=`Celda ${maxI+1}`;
-  document.getElementById('sDist').textContent=d.stroke.toFixed(1);
+  document.getElementById('sDist').textContent=d.dimension.toFixed(1);
   document.getElementById('sPress').textContent=d.pressure.toFixed(1);
 }
 
@@ -743,15 +894,24 @@ function toggleConnect(){
     const b=document.getElementById('statusBadge');b.className='badge bg-warning text-dark';b.textContent='Conectando…';
   }
 }
+let _stopping = false;
 function toggleRecord(){
+  const btn = document.getElementById('recBtn');
   if(!recording){
+    btn.disabled = true;
     fetch('/api/record/start',{method:'POST'}).then(()=>{
-      recording=true;document.getElementById('recBtn').textContent='⏹ Detener';
+      recording=true; btn.disabled = false;
+      btn.textContent='⏹ Detener';
       document.getElementById('recBadge').classList.remove('d-none');
-    });
+    }).catch(()=>{ btn.disabled = false; });
   } else {
+    if(_stopping) return;
+    _stopping = true;
+    btn.disabled = true;
+    btn.textContent = '⏳ Guardando…';
     fetch('/api/record/stop',{method:'POST'}).then(r=>r.json()).then(d=>{
-      recording=false;document.getElementById('recBtn').textContent='⏺ Grabar';
+      recording=false; _stopping = false; btn.disabled = false;
+      btn.textContent='⏺ Grabar';
       document.getElementById('recBadge').classList.add('d-none');
       if(d.ok){
         _pendingFotoName = d.name;
@@ -759,7 +919,7 @@ function toggleRecord(){
         alert(`✅ Sesión guardada\n${d.name}\n${d.rows} registros`);
         loadSessions();
       } else alert('⚠ Sin datos para guardar.');
-    });
+    }).catch(()=>{ _stopping = false; btn.disabled = false; btn.textContent='⏹ Detener'; });
   }
 }
 
@@ -828,10 +988,10 @@ function doZero(){
     el.className='ms-2 small '+(d.ok?'text-success':'text-danger');
   });
 }
-function doStroke(point){
-  const id=point==='min'?'strokeMinStatus':'strokeMaxStatus';
+function doDimension(point){
+  const id=point==='min'?'dimMinStatus':'dimMaxStatus';
   const el=document.getElementById(id); el.textContent='Tomando…'; el.className='ms-2 small text-muted';
-  fetch('/api/calibrate/stroke',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({point})})
+  fetch('/api/calibrate/dimension',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({point})})
     .then(r=>r.json()).then(d=>{
       el.textContent=d.ok?`✅ raw=${d.raw.toFixed(2)}`:'⚠ '+d.msg;
       el.className='ms-2 small '+(d.ok?'text-success':'text-danger');
@@ -862,6 +1022,8 @@ function loadSessions(){
   fetch('/api/sessions').then(r=>r.json()).then(list=>{
     const el=document.getElementById('sessionList');
     if(!list.length){el.innerHTML='<div class="text-muted small">Sin sesiones guardadas</div>';return;}
+    // Starred primero
+    list.sort((a,b) => (b.meta?.starred?1:0) - (a.meta?.starred?1:0));
     el.innerHTML=list.map(s=>{
       const meta = s.meta||{};
       const tipo  = meta.tipo||'';
@@ -869,6 +1031,9 @@ function loadSessions(){
       const tipoCss   = tipo ? `tipo-badge tipo-${tipo}` : '';
       const label = s.name.replace(/^(comp_cubo_|comp_piso_|def_esquina_|def_total_|sesion_)/,'');
       const sel   = selectedSes===s.name?'selected':'';
+      const starred = meta.starred;
+      const starIcon = starred ? '★' : '☆';
+      const starColor = starred ? '#f59e0b' : 'var(--muted)';
       const materialLine = meta.material ? `<span class="text-muted" style="font-size:0.68rem">${meta.material}${meta.dimensiones?' · '+meta.dimensiones:''}</span>` : '';
       const opLine = meta.operador ? `<span class="text-muted" style="font-size:0.68rem"> · ${meta.operador}</span>` : '';
       return `<div class="session-item ${sel}" onclick="selectSession('${s.name}')">
@@ -877,7 +1042,10 @@ function loadSessions(){
             ${tipoLabel ? `<span class="${tipoCss}">${tipoLabel}</span> ` : ''}
             <span style="font-size:0.78rem">${label}</span>
           </div>
-          <button class="btn btn-sm p-0 ms-1" style="font-size:0.65rem;color:var(--muted)" onclick="event.stopPropagation();showSesionDetail('${s.name}')" title="Ver metadata">ℹ</button>
+          <div class="d-flex gap-1">
+            <button class="btn btn-sm p-0" style="font-size:0.85rem;color:${starColor};line-height:1" onclick="event.stopPropagation();toggleStar('${s.name}')" title="${starred?'Quitar destacado':'Destacar'}">${starIcon}</button>
+            <button class="btn btn-sm p-0 ms-1" style="font-size:0.65rem;color:var(--muted)" onclick="event.stopPropagation();showSesionDetail('${s.name}')" title="Ver metadata">ℹ</button>
+          </div>
         </div>
         <div>${materialLine}${opLine}</div>
         <div class="text-muted" style="font-size:0.68rem">${s.rows} registros</div>
@@ -906,6 +1074,12 @@ function showSesionDetail(name){
         ${rows.map(([k,v])=>`<tr><td class="text-muted fw-semibold" style="width:40%">${k}</td><td>${v}</td></tr>`).join('')}
       </table>`;
     new bootstrap.Modal(document.getElementById('sesionDetailModal')).show();
+  });
+}
+
+function toggleStar(name){
+  fetch(`/api/sessions/${name}/star`,{method:'POST'}).then(r=>r.json()).then(d=>{
+    if(d.ok) loadSessions();
   });
 }
 
@@ -1020,26 +1194,40 @@ buildToggles(); loadSessions(); refreshPorts(true); loadFilter(); loadEnsayoMeta
 // ── F3: Análisis ──────────────────────────────────────────────────────────────
 const AN_COLORS = ['#e6194b','#3cb44b','#4363d8','#f58231','#911eb4','#42d4f4'];
 const MAX_AN    = 6;
-let _anSelected = new Set(); // nombres de sesión seleccionados
+let _anSelected = new Set();
+
+const _anChartOpts = (xLabel, yLabel) => ({
+  animation: false, responsive: true, maintainAspectRatio: false,
+  scales: {
+    x: { title: { display: true, text: xLabel, color: '#57606a' }, ticks: { color: '#57606a' }, grid: { color: '#e8ecf0' } },
+    y: { title: { display: true, text: yLabel, color: '#57606a' }, ticks: { color: '#57606a' }, grid: { color: '#e8ecf0' } },
+  },
+  plugins: { legend: { display: false } },
+  elements: { point: { radius: 0 } },
+});
 
 const analisisChart = new Chart(document.getElementById('analisisChart').getContext('2d'), {
-  type: 'scatter',
-  data: { datasets: [] },
+  type: 'scatter', data: { datasets: [] },
   options: {
-    animation: false, responsive: true, maintainAspectRatio: false,
-    scales: {
-      x: { title: { display: true, text: 'Deformación stroke (mm)', color: '#57606a' }, ticks: { color: '#57606a' }, grid: { color: '#e8ecf0' } },
-      y: { title: { display: true, text: 'Carga total (kg)', color: '#57606a' }, ticks: { color: '#57606a' }, grid: { color: '#e8ecf0' } },
-    },
+    ..._anChartOpts('Deformación (mm)', 'Carga total (kg)'),
+    elements: { point: { radius: 1.5 } },
     plugins: {
       legend: { display: false },
       tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: (${ctx.parsed.x.toFixed(2)} mm, ${ctx.parsed.y.toFixed(1)} kg)` } }
     },
-    elements: { point: { radius: 1.5 } },
   }
 });
 
-// F3.2: carga lista de ensayos disponibles
+const anChartCargaT = new Chart(document.getElementById('anChartCargaT').getContext('2d'), {
+  type: 'line', data: { labels: [], datasets: [] },
+  options: _anChartOpts('Tiempo (s)', 'Carga total (kg)'),
+});
+
+const anChartDistT = new Chart(document.getElementById('anChartDistT').getContext('2d'), {
+  type: 'line', data: { labels: [], datasets: [] },
+  options: _anChartOpts('Tiempo (s)', 'Distancia (mm)'),
+});
+
 function loadAnalisisList() {
   fetch('/api/sessions').then(r => r.json()).then(list => {
     const el = document.getElementById('analisisList');
@@ -1064,21 +1252,16 @@ function loadAnalisisList() {
   });
 }
 
-// F3.2: toggle selección (máx 6)
 function toggleAnalisisItem(name) {
-  if (_anSelected.has(name)) {
-    _anSelected.delete(name);
-  } else {
-    if (_anSelected.size >= MAX_AN) {
-      alert(`Máximo ${MAX_AN} ensayos simultáneos.`); return;
-    }
+  if (_anSelected.has(name)) _anSelected.delete(name);
+  else {
+    if (_anSelected.size >= MAX_AN) { alert(`Máximo ${MAX_AN} ensayos simultáneos.`); return; }
     _anSelected.add(name);
   }
   loadAnalisisList();
   renderAnalisis();
 }
 
-// F3.3 / F3.4: renderizar gráfico comparativo
 function renderAnalisis() {
   const names = Array.from(_anSelected);
   const legend = document.getElementById('analisisLegend');
@@ -1089,48 +1272,68 @@ function renderAnalisis() {
   );
 
   Promise.all(promises).then(results => {
-    analisisChart.data.datasets = results.map((r, idx) => {
+    const dsCargaDef = [], dsCargaT = [], dsDistT = [];
+
+    results.forEach((r, idx) => {
       const color = AN_COLORS[idx % AN_COLORS.length];
       const meta  = r.name.replace(/^(comp_cubo_|comp_piso_|def_esquina_|def_total_|sesion_)/, '');
-
-      // Carga total = suma de todas las celdas
-      const strokeArr = r.data.stroke || [];
-      const totalArr  = strokeArr.map((_, i) => {
+      const dimArr  = r.data.dimension || [];
+      const tArr    = r.data.t || [];
+      const totalArr = dimArr.map((_, i) => {
         let s = 0;
-        for (let c = 1; c <= 9; c++) {
-          const v = r.data[`celda_${c}`];
-          s += v ? (v[i] || 0) : 0;
-        }
+        for (let c = 1; c <= 9; c++) { const v = r.data[`celda_${c}`]; s += v ? (v[i] || 0) : 0; }
         return s;
       });
-      const pts = strokeArr.map((x, i) => ({ x: parseFloat(x), y: totalArr[i] }));
 
-      // F3.6: leyenda con toggle
+      // Carga vs Deformación (scatter)
+      dsCargaDef.push({
+        label: meta, data: dimArr.map((x, i) => ({ x: parseFloat(x), y: totalArr[i] })),
+        borderColor: color, backgroundColor: color + '22', showLine: true, borderWidth: 2, pointRadius: 0,
+      });
+      // Carga vs Tiempo (line)
+      dsCargaT.push({
+        label: meta, data: totalArr,
+        borderColor: color, backgroundColor: color + '15', borderWidth: 1.5, pointRadius: 0, tension: 0.25,
+      });
+      // Distancia vs Tiempo (line)
+      dsDistT.push({
+        label: meta, data: dimArr.map(v => parseFloat(v)),
+        borderColor: color, backgroundColor: color + '15', borderWidth: 1.5, pointRadius: 0, tension: 0.25,
+      });
+
+      // Leyenda
       const pill = document.createElement('span');
       pill.className = 'badge rounded-pill';
       pill.style.cssText = `background:${color}22;color:${color};border:1px solid ${color};font-size:0.75rem;cursor:pointer;user-select:none`;
       pill.textContent = meta;
       pill.onclick = () => {
-        const ds = analisisChart.data.datasets.find(d => d.label === meta);
-        if (ds) { ds.hidden = !ds.hidden; pill.style.opacity = ds.hidden ? '0.35' : '1'; analisisChart.update('none'); }
+        [analisisChart, anChartCargaT, anChartDistT].forEach(ch => {
+          const ds = ch.data.datasets.find(d => d.label === meta);
+          if (ds) { ds.hidden = !ds.hidden; ch.update('none'); }
+        });
+        pill.style.opacity = pill.style.opacity === '0.35' ? '1' : '0.35';
       };
       legend.appendChild(pill);
-
-      return {
-        label: meta,
-        data: pts,
-        borderColor: color,
-        backgroundColor: color + '22',
-        showLine: true,
-        borderWidth: 2,
-        pointRadius: 0,
-      };
     });
+
+    // Labels de tiempo (usar el ensayo más largo)
+    const maxLen = Math.max(...results.map(r => (r.data.t || []).length), 0);
+    const longestT = results.find(r => (r.data.t || []).length === maxLen);
+    const timeLabels = longestT ? longestT.data.t.map(v => parseFloat(v).toFixed(1)) : [];
+
+    analisisChart.data.datasets = dsCargaDef;
     analisisChart.update();
+
+    anChartCargaT.data.labels = timeLabels;
+    anChartCargaT.data.datasets = dsCargaT;
+    anChartCargaT.update();
+
+    anChartDistT.data.labels = timeLabels;
+    anChartDistT.data.datasets = dsDistT;
+    anChartDistT.update();
   });
 }
 
-// F3.5: rango manual
 function applyAnalisisRange() {
   analisisChart.options.scales.x.min = document.getElementById('anXMin').value !== '' ? parseFloat(document.getElementById('anXMin').value) : undefined;
   analisisChart.options.scales.x.max = document.getElementById('anXMax').value !== '' ? parseFloat(document.getElementById('anXMax').value) : undefined;
@@ -1145,27 +1348,24 @@ function resetAnalisisRange() {
   analisisChart.update('none');
 }
 
-// F3.7: exportar PNG
-function exportAnalisisPNG() {
-  const url = analisisChart.toBase64Image('image/png', 1);
+function exportAnalisisPNG(chartId) {
+  const ch = chartId === 'anChartCargaT' ? anChartCargaT : chartId === 'anChartDistT' ? anChartDistT : analisisChart;
+  const url = ch.toBase64Image('image/png', 1);
   const a = document.createElement('a');
   a.href = url;
-  a.download = 'analisis_comparativo.png';
+  a.download = `analisis_${chartId}.png`;
   a.click();
 }
 
 function clearAnalisis() {
   _anSelected.clear();
-  analisisChart.data.datasets = [];
-  analisisChart.update();
+  [analisisChart, anChartCargaT, anChartDistT].forEach(ch => { ch.data.datasets = []; ch.update(); });
   document.getElementById('analisisLegend').innerHTML = '';
   loadAnalisisList();
 }
 
-// Recargar lista al entrar a la pestaña
 document.getElementById('tabAnalisisLink').addEventListener('shown.bs.tab', loadAnalisisList);
 
-// También recargar lista al guardar una sesión (para que aparezca inmediatamente)
 const _origLoadSessions = loadSessions;
 loadSessions = function() { _origLoadSessions(); loadAnalisisList(); };
 </script>

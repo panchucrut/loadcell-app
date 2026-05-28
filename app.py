@@ -19,7 +19,7 @@ BASE             = os.path.dirname(os.path.abspath(__file__))
 CALIBRATION_FILE = os.path.join(BASE, 'calibration.json')
 SESSIONS_DIR     = os.path.join(BASE, 'sessions')
 FILTER_FILE      = os.path.join(BASE, 'filter_config.json')
-STROKE_CAL_FILE  = os.path.join(BASE, 'stroke_cal.json')
+DIMENSION_CAL_FILE  = os.path.join(BASE, 'dimension_cal.json')
 os.makedirs(SESSIONS_DIR, exist_ok=True)
 
 app = Flask(__name__)
@@ -90,7 +90,7 @@ _recording            = False
 _session_buf          = []
 _serial_cfg           = {'port': '', 'baud': 115200}
 _t_record_start       = None
-_stroke_record_offset = 0.0
+_dimension_record_offset = 0.0
 
 # F2: ensayo metadata state
 _ensayo_meta = {
@@ -115,24 +115,24 @@ def _safe_name(name: str) -> str:
     return name
 
 
-_STROKE_CAL_DEFAULT = {'raw_min': 0.49, 'raw_max': 98.24, 'mm_min': 0.0, 'mm_max': 100.0}
-_stroke_cal_cache = None
+_DIMENSION_CAL_DEFAULT = {'raw_min': 0.49, 'raw_max': 98.24, 'mm_min': 0.0, 'mm_max': 100.0}
+_dimension_cal_cache = None
 _cal_cache = None
 
-def load_stroke_cal():
-    global _stroke_cal_cache
-    if _stroke_cal_cache is None:
-        if os.path.exists(STROKE_CAL_FILE):
-            with open(STROKE_CAL_FILE) as f:
-                _stroke_cal_cache = json.load(f)
+def load_dimension_cal():
+    global _dimension_cal_cache
+    if _dimension_cal_cache is None:
+        if os.path.exists(DIMENSION_CAL_FILE):
+            with open(DIMENSION_CAL_FILE) as f:
+                _dimension_cal_cache = json.load(f)
         else:
-            _stroke_cal_cache = dict(_STROKE_CAL_DEFAULT)
-    return _stroke_cal_cache
+            _dimension_cal_cache = dict(_DIMENSION_CAL_DEFAULT)
+    return _dimension_cal_cache
 
-def save_stroke_cal(sc):
-    global _stroke_cal_cache
-    _stroke_cal_cache = sc
-    with open(STROKE_CAL_FILE, 'w') as f:
+def save_dimension_cal(sc):
+    global _dimension_cal_cache
+    _dimension_cal_cache = sc
+    with open(DIMENSION_CAL_FILE, 'w') as f:
         json.dump(sc, f, indent=2)
 
 _above_count = 0
@@ -176,10 +176,10 @@ def apply_cal(raw, cal):
     for i in range(1, 10):
         k = f'celda_{i}'
         out[k] = round((float(raw.get(k, 0)) - cal[k]['offset']) / cal[k]['scale'], 2)
-    sc = load_stroke_cal()
-    raw_s = float(raw.get('stroke', 0))
+    sc = load_dimension_cal()
+    raw_s = float(raw.get('dimension', 0))
     span = sc['raw_max'] - sc['raw_min']
-    out['stroke'] = round((raw_s - sc['raw_min']) / span * (sc['mm_max'] - sc['mm_min']) + sc['mm_min'], 2) if span != 0 else round(raw_s, 2)
+    out['dimension'] = round((raw_s - sc['raw_min']) / span * (sc['mm_max'] - sc['mm_min']) + sc['mm_min'], 2) if span != 0 else round(raw_s, 2)
     out['pressure'] = round(float(raw.get('pressure', 0)), 2)
     return out
 
@@ -226,13 +226,14 @@ def _save_session(buf, meta=None):
         meta_out['timestamp'] = ts
         meta_out['rows'] = len(buf)
         meta_out['nombre_archivo'] = name
+        meta_out.setdefault('starred', False)
         with open(os.path.join(SESSIONS_DIR, name + '_meta.json'), 'w') as f:
             json.dump(meta_out, f, indent=2, ensure_ascii=False)
     return name
 
 # ── serial worker ──────────────────────────────────────────────────────────────
 def _serial_worker():
-    global _ser_running, _recording, _session_buf, _above_count, _below_count, _t_record_start, _stroke_record_offset
+    global _ser_running, _recording, _session_buf, _above_count, _below_count, _t_record_start, _dimension_record_offset
     t0  = time.time()
     ser = None
     for buf in _med_bufs.values():
@@ -270,7 +271,7 @@ def _serial_worker():
                                     _session_buf          = []
                                     _recording            = True
                                     _t_record_start       = data['t']
-                                    _stroke_record_offset = data['stroke']
+                                    _dimension_record_offset = data['dimension']
                                 _above_count = 0
                                 socketio.emit('auto_record', {'state': 'started'})
                         else:
@@ -296,17 +297,17 @@ def _serial_worker():
 
                 if _recording and _t_record_start is not None:
                     data['t_rel']      = round(data['t'] - _t_record_start, 2)
-                    data['stroke_rel'] = round(data['stroke'] - _stroke_record_offset, 2)
+                    data['dimension_rel'] = round(data['dimension'] - _dimension_record_offset, 2)
                 else:
                     data['t_rel']      = 0.0
-                    data['stroke_rel'] = 0.0
+                    data['dimension_rel'] = 0.0
 
                 socketio.emit('data', data)
                 if _recording:
                     with _lock:
                         rec = dict(data)
                         rec['t']      = data['t_rel']
-                        rec['stroke'] = data['stroke_rel']
+                        rec['dimension'] = data['dimension_rel']
                         _session_buf.append(rec)
 
             except (json.JSONDecodeError, KeyError):
@@ -444,11 +445,11 @@ def post_ensayo_meta():
 @app.route('/api/record/start', methods=['POST'])
 @login_required
 def rec_start():
-    global _recording, _session_buf, _t_record_start, _stroke_record_offset
+    global _recording, _session_buf, _t_record_start, _dimension_record_offset
     with _lock:
         last = dict(_session_buf[-1]) if _session_buf else {}
         _t_record_start       = last.get('t', 0.0)
-        _stroke_record_offset = last.get('stroke', 0.0)
+        _dimension_record_offset = last.get('dimension', 0.0)
         _session_buf          = []
         _recording            = True
     return jsonify({'ok': True})
@@ -457,9 +458,13 @@ def rec_start():
 @login_required
 def rec_stop():
     global _recording
-    _recording = False
     with _lock:
+        was_recording = _recording
+        _recording = False
+        if not was_recording:
+            return jsonify({'ok': False, 'msg': 'no estaba grabando'})
         buf  = list(_session_buf)
+        _session_buf.clear()
         meta = dict(_ensayo_meta)
     name = _save_session(buf, meta)
     if not name:
@@ -517,6 +522,21 @@ def del_session(name):
             os.remove(p)
     return jsonify({'ok': True})
 
+# T5: toggle starred
+@app.route('/api/sessions/<name>/star', methods=['POST'])
+@login_required
+def toggle_star(name):
+    name = _safe_name(name)
+    meta_path = os.path.join(SESSIONS_DIR, name + '_meta.json')
+    meta = {}
+    if os.path.exists(meta_path):
+        with open(meta_path) as f:
+            meta = json.load(f)
+    meta['starred'] = not meta.get('starred', False)
+    with open(meta_path, 'w') as f:
+        json.dump(meta, f, indent=2, ensure_ascii=False)
+    return jsonify({'ok': True, 'starred': meta['starred']})
+
 # F2.5: foto del ensayo
 @app.route('/api/sessions/<name>/foto', methods=['POST'])
 @login_required
@@ -547,29 +567,29 @@ def calibrate_zero():
     save_cal(cal)
     return jsonify({'ok': True, 'msg': 'Zero seteado para las 9 celdas'})
 
-@app.route('/api/calibrate/stroke', methods=['POST'])
+@app.route('/api/calibrate/dimension', methods=['POST'])
 @login_required
-def calibrate_stroke():
+def calibrate_dimension():
     with _lock:
         raw = dict(_last_raw)
     if not raw:
         return jsonify({'ok': False, 'msg': 'Sin datos del Arduino'}), 400
     point = (request.json or {}).get('point')
-    sc = load_stroke_cal()
-    raw_val = float(raw.get('stroke', 0))
+    sc = load_dimension_cal()
+    raw_val = float(raw.get('dimension', 0))
     if point == 'min':
         sc['raw_min'] = raw_val
     elif point == 'max':
         sc['raw_max'] = raw_val
     else:
         return jsonify({'ok': False, 'msg': 'point debe ser min o max'}), 400
-    save_stroke_cal(sc)
-    return jsonify({'ok': True, 'raw': raw_val, 'stroke_cal': sc})
+    save_dimension_cal(sc)
+    return jsonify({'ok': True, 'raw': raw_val, 'dimension_cal': sc})
 
-@app.route('/api/calibrate/stroke', methods=['GET'])
+@app.route('/api/calibrate/dimension', methods=['GET'])
 @login_required
-def get_stroke_cal():
-    return jsonify(load_stroke_cal())
+def get_dimension_cal():
+    return jsonify(load_dimension_cal())
 
 REFERENCE_FILE = os.path.join(BASE, 'reference_data.json')
 
