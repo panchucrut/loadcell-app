@@ -3,7 +3,7 @@ from collections import deque
 from serial.tools import list_ports
 from datetime import datetime
 from functools import wraps
-from flask import Flask, render_template, render_template_string, jsonify, request, redirect, url_for, session
+from flask import Flask, render_template, render_template_string, jsonify, request, redirect, url_for, session, send_file
 from flask_socketio import SocketIO
 import serial
 import msal
@@ -575,6 +575,33 @@ def del_session(name):
         if os.path.exists(p):
             os.remove(p)
     return jsonify({'ok': True})
+
+# T9: descarga múltiple ZIP
+@app.route('/api/sessions/download-zip', methods=['POST'])
+@login_required
+def download_zip():
+    import zipfile, io
+    body = request.json or {}
+    names = body.get('names', [])
+    if not names or not isinstance(names, list):
+        return jsonify({'error': 'names requerido'}), 400
+    names = [_safe_name(n) for n in names if n]
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+        for name in names:
+            for ext in ('.csv', '.xlsx', '_meta.json'):
+                p = os.path.join(SESSIONS_DIR, name + ext)
+                if os.path.exists(p):
+                    zf.write(p, f'{name}/{name}{ext}')
+            # foto (any extension)
+            for img_ext in ('.jpg', '.jpeg', '.png', '.heic', '.heif', '.webp'):
+                p = os.path.join(SESSIONS_DIR, name + '_foto' + img_ext)
+                if os.path.exists(p):
+                    zf.write(p, f'{name}/{name}_foto{img_ext}')
+                    break
+    buf.seek(0)
+    return send_file(buf, mimetype='application/zip',
+                     as_attachment=True, download_name='ensayos.zip')
 
 # T5: toggle starred
 @app.route('/api/sessions/<name>/star', methods=['POST'])

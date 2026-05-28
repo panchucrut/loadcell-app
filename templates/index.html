@@ -207,7 +207,17 @@
           <div class="card p-3 flex-grow-1">
             <div class="d-flex justify-content-between align-items-center mb-2">
               <span class="fw-semibold">Historial</span>
-              <button class="btn btn-sm btn-outline-secondary py-0 px-2" onclick="loadSessions()">↺</button>
+              <div class="d-flex gap-1">
+                <button class="btn btn-sm btn-outline-secondary py-0 px-2" onclick="loadSessions()">↺</button>
+                <button class="btn btn-sm btn-outline-secondary py-0 px-2" id="btnSelMode" onclick="toggleSelMode()" title="Selección múltiple">☑</button>
+              </div>
+            </div>
+            <!-- T9: multi-select action bar -->
+            <div id="selBar" class="d-none mb-2 d-flex gap-1 align-items-center flex-wrap">
+              <span id="selCount" class="text-muted" style="font-size:0.75rem">0 seleccionados</span>
+              <button class="btn btn-sm btn-outline-primary py-0 px-2 ms-auto" onclick="downloadZip()">⬇ ZIP</button>
+              <button class="btn btn-sm btn-outline-secondary py-0 px-2" onclick="selectAllSessions()">Todos</button>
+              <button class="btn btn-sm btn-outline-secondary py-0 px-2" onclick="clearSelMode()">✕</button>
             </div>
             <div id="sessionList" style="max-height:280px;overflow-y:auto"></div>
             <div id="compareBar" class="mt-2 d-none d-flex gap-2">
@@ -616,6 +626,9 @@ const TIPO_LABELS = {
 };
 
 let paused=false, recording=false, connected=false, windowSec=60, selectedSes=null;
+// T9: multi-select state
+let _selMode = false;
+const _selSet = new Set();
 let tBuf=[], cBufs=Array.from({length:9},()=>[]), sBuf=[], pBuf=[];
 let _currentMeta = {tipo:'comp_cubo', material:'', dimensiones:'', operador:'', notas:'', titulo:''};
 let _pendingFotoName = null; // nombre de sesión al que subir foto
@@ -1168,9 +1181,12 @@ function loadSessions(){
       const starColor = starred ? '#f59e0b' : 'var(--muted)';
       const materialLine = meta.material ? `<span class="text-muted" style="font-size:0.68rem">${meta.material}${meta.dimensiones?' · '+meta.dimensiones:''}</span>` : '';
       const opLine = meta.operador ? `<span class="text-muted" style="font-size:0.68rem"> · ${meta.operador}</span>` : '';
-      return `<div class="session-item ${sel}" onclick="selectSession('${s.name}')">
+      const chk = _selMode ? `<input type="checkbox" class="form-check-input me-2 sel-chk" data-name="${s.name}" ${_selSet.has(s.name)?'checked':''} onclick="event.stopPropagation();toggleSelItem('${s.name}',this.checked)" style="cursor:pointer">` : '';
+      const clickFn = _selMode ? `toggleSelItem('${s.name}',!document.querySelector('.sel-chk[data-name=\\'${s.name}\\']')?.checked)` : `selectSession('${s.name}')`;
+      return `<div class="session-item ${sel}" onclick="${clickFn}">
         <div class="d-flex justify-content-between align-items-start">
-          <div class="text-truncate flex-grow-1">
+          <div class="d-flex align-items-center text-truncate flex-grow-1">
+            ${chk}
             ${tipoLabel ? `<span class="${tipoCss}">${tipoLabel}</span> ` : ''}
             <span style="font-size:0.78rem">${label}</span>
           </div>
@@ -1496,7 +1512,57 @@ function clearAnalisis() {
   loadAnalisisList();
 }
 
-// T8: QR foto desde celular
+// T9: multi-select & ZIP download
+function toggleSelMode(){
+  _selMode = !_selMode;
+  _selSet.clear();
+  document.getElementById('selBar').classList.toggle('d-none', !_selMode);
+  document.getElementById('btnSelMode').classList.toggle('btn-secondary', _selMode);
+  document.getElementById('btnSelMode').classList.toggle('btn-outline-secondary', !_selMode);
+  loadSessions();
+}
+
+function clearSelMode(){
+  _selMode = false;
+  _selSet.clear();
+  document.getElementById('selBar').classList.add('d-none');
+  document.getElementById('btnSelMode').classList.remove('btn-secondary');
+  document.getElementById('btnSelMode').classList.add('btn-outline-secondary');
+  loadSessions();
+}
+
+function toggleSelItem(name, checked){
+  if(checked) _selSet.add(name); else _selSet.delete(name);
+  document.getElementById('selCount').textContent = `${_selSet.size} seleccionado${_selSet.size!==1?'s':''}`;
+  // sync checkbox visually
+  const chk = document.querySelector(`.sel-chk[data-name="${name}"]`);
+  if(chk) chk.checked = checked;
+}
+
+function selectAllSessions(){
+  document.querySelectorAll('.sel-chk').forEach(c=>{ _selSet.add(c.dataset.name); c.checked=true; });
+  document.getElementById('selCount').textContent = `${_selSet.size} seleccionado${_selSet.size!==1?'s':''}`;
+}
+
+function downloadZip(){
+  if(!_selSet.size){ alert('Selecciona al menos un ensayo'); return; }
+  fetch('/api/sessions/download-zip',{
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({names:[..._selSet]})
+  }).then(r=>{
+    if(!r.ok){ r.json().then(d=>alert(d.error||'Error')); return; }
+    return r.blob();
+  }).then(blob=>{
+    if(!blob) return;
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `ensayos_${new Date().toISOString().slice(0,10)}.zip`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  });
+}
+
+
 let _qrToken = null;
 let _qrPollInterval = null;
 let _qrTimerInterval = null;
