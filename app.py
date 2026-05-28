@@ -80,7 +80,7 @@ DEFAULT_FILTER = {
     'stop_count':         15,
 }
 
-ENSAYO_TIPOS_FILE = os.path.join(BASE_DIR, 'ensayo_tipos.json')
+ENSAYO_TIPOS_FILE = os.path.join(BASE, 'ensayo_tipos.json')
 _ENSAYO_TIPOS_DEFAULT = {
     'comp_cubo':   'Compresión cubo',
     'comp_piso':   'Compresión piso',
