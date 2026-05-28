@@ -1,4 +1,4 @@
-import os, json, time, glob, threading, csv, statistics
+import os, json, time, glob, threading, csv, statistics, uuid
 from collections import deque
 from serial.tools import list_ports
 from datetime import datetime
@@ -20,7 +20,12 @@ CALIBRATION_FILE = os.path.join(BASE, 'calibration.json')
 SESSIONS_DIR     = os.path.join(BASE, 'sessions')
 FILTER_FILE      = os.path.join(BASE, 'filter_config.json')
 DIMENSION_CAL_FILE  = os.path.join(BASE, 'dimension_cal.json')
+FOTO_TMP_DIR     = os.path.join(BASE, 'foto_tmp')
 os.makedirs(SESSIONS_DIR, exist_ok=True)
+os.makedirs(FOTO_TMP_DIR, exist_ok=True)
+
+# T8: foto tokens {token: {'expires': float, 'path': str|None}}
+_foto_tokens = {}
 
 app = Flask(__name__)
 _secret = os.getenv('SECRET_KEY')
@@ -600,6 +605,129 @@ def upload_foto(name):
     foto_path = os.path.join(SESSIONS_DIR, name + '_foto' + ext)
     f.save(foto_path)
     return jsonify({'ok': True, 'path': foto_path})
+
+# T8: foto desde celular vía QR
+FOTO_TOKEN_TTL = 600  # 10 minutos
+
+def _clean_foto_tokens():
+    now = time.time()
+    expired = [k for k, v in _foto_tokens.items() if v['expires'] < now]
+    for k in expired:
+        p = _foto_tokens[k].get('path')
+        if p and os.path.exists(p):
+            try: os.remove(p)
+            except: pass
+        del _foto_tokens[k]
+
+@app.route('/api/foto/token', methods=['POST'])
+@login_required
+def create_foto_token():
+    _clean_foto_tokens()
+    token = uuid.uuid4().hex
+    _foto_tokens[token] = {'expires': time.time() + FOTO_TOKEN_TTL, 'path': None}
+    base_url = request.host_url.rstrip('/')
+    return jsonify({'ok': True, 'token': token, 'url': f'{base_url}/foto/{token}'})
+
+@app.route('/foto/<token>', methods=['GET'])
+def foto_upload_page(token):
+    if token not in _foto_tokens or _foto_tokens[token]['expires'] < time.time():
+        return '<h2>Enlace expirado o invalido</h2>', 410
+    already = _foto_tokens[token]['path'] is not None
+    tmpl = '''<!DOCTYPE html>
+<html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Foto de muestra</title>
+<style>
+body{font-family:system-ui,sans-serif;max-width:420px;margin:40px auto;padding:20px;text-align:center;background:#f8f9fa}
+h2{color:#1e3a5f;margin-bottom:8px}
+.sub{color:#666;font-size:.9rem;margin-bottom:32px}
+label.btn{display:inline-block;padding:14px 28px;background:#1e3a5f;color:white;border-radius:8px;font-size:1rem;cursor:pointer}
+input[type=file]{display:none}
+#preview{margin-top:20px;max-width:100%;border-radius:8px;display:none}
+#status{margin-top:16px;font-size:1rem;font-weight:600}
+.ok{color:#16a34a}.err{color:#dc2626}
+</style></head><body>
+{% if already %}<h2>Foto recibida</h2><p class="sub">Ya se recibio una foto para este ensayo.</p>
+{% else %}
+<h2>Foto de muestra</h2>
+<p class="sub">Toma o selecciona una foto de la muestra de ensayo</p>
+<label class="btn">Tomar / Seleccionar foto
+<input type="file" id="fInput" accept="image/*" capture="environment"></label>
+<img id="preview" alt="preview">
+<div id="status"></div>
+<script>
+document.getElementById('fInput').addEventListener('change',function(){
+  var f=this.files[0];if(!f)return;
+  var r=new FileReader();r.onload=function(e){var i=document.getElementById('preview');i.src=e.target.result;i.style.display='block';};r.readAsDataURL(f);
+  var fd=new FormData();fd.append('foto',f);
+  var st=document.getElementById('status');st.textContent='Subiendo...';st.className='';
+  fetch('/foto/{{token}}/upload',{method:'POST',body:fd}).then(function(r){return r.json();}).then(function(d){
+    if(d.ok){st.textContent='Foto enviada correctamente';st.className='ok';}
+    else{st.textContent='Error: '+d.msg;st.className='err';}
+  }).catch(function(){st.textContent='Error de red';st.className='err';});
+});
+</script>
+{% endif %}
+</body></html>'''
+    return render_template_string(tmpl, token=token, already=already)
+
+@app.route('/foto/<token>/upload', methods=['POST'])
+def foto_upload_receive(token):
+    if token not in _foto_tokens or _foto_tokens[token]['expires'] < time.time():
+        return jsonify({'ok': False, 'msg': 'token invalido o expirado'}), 410
+    if 'foto' not in request.files:
+        return jsonify({'ok': False, 'msg': 'sin archivo'}), 400
+    f = request.files['foto']
+    ext = os.path.splitext(f.filename)[1].lower() if f.filename else '.jpg'
+    if ext not in ('.jpg', '.jpeg', '.png', '.heic', '.heif', '.webp'):
+        return jsonify({'ok': False, 'msg': 'tipo no permitido'}), 400
+    old = _foto_tokens[token].get('path')
+    if old and os.path.exists(old):
+        try: os.remove(old)
+        except: pass
+    dest = os.path.join(FOTO_TMP_DIR, f'foto_{token}{ext}')
+    f.save(dest)
+    _foto_tokens[token]['path'] = dest
+    return jsonify({'ok': True})
+
+@app.route('/api/foto/token/<token>/status', methods=['GET'])
+@login_required
+def foto_token_status(token):
+    if token not in _foto_tokens:
+        return jsonify({'ok': False, 'ready': False}), 404
+    info = _foto_tokens[token]
+    if info['expires'] < time.time():
+        return jsonify({'ok': False, 'ready': False, 'msg': 'expirado'}), 410
+    ready = info['path'] is not None
+    result = {'ok': True, 'ready': ready, 'expires_in': int(info['expires'] - time.time())}
+    if ready:
+        import base64
+        try:
+            with open(info['path'], 'rb') as fh:
+                ext = os.path.splitext(info['path'])[1].lower().lstrip('.')
+                mime = 'image/jpeg' if ext in ('jpg','jpeg','heic','heif') else f'image/{ext}'
+                result['preview'] = f'data:{mime};base64,{base64.b64encode(fh.read()).decode()}'
+        except: pass
+    return jsonify(result)
+
+@app.route('/api/foto/token/<token>/claim', methods=['POST'])
+@login_required
+def foto_token_claim(token):
+    if token not in _foto_tokens:
+        return jsonify({'ok': False, 'msg': 'token no encontrado'}), 404
+    info = _foto_tokens[token]
+    if not info['path'] or not os.path.exists(info['path']):
+        return jsonify({'ok': False, 'msg': 'sin foto'}), 400
+    body = request.json or {}
+    name = _safe_name(body.get('name', ''))
+    if not name:
+        return jsonify({'ok': False, 'msg': 'nombre sesion requerido'}), 400
+    ext = os.path.splitext(info['path'])[1]
+    dest = os.path.join(SESSIONS_DIR, name + '_foto' + ext)
+    import shutil
+    shutil.move(info['path'], dest)
+    del _foto_tokens[token]
+    return jsonify({'ok': True, 'path': dest})
 
 @app.route('/api/calibrate/zero', methods=['POST'])
 @login_required

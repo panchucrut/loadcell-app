@@ -7,6 +7,7 @@
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
   <style>
     :root {
       --bg: #f5f7fa;
@@ -475,10 +476,26 @@
           <div class="text-muted mt-1" style="font-size:0.68rem">Vacío = {tipo}_{timestamp}</div>
         </div>
 
-        <!-- F2.5: foto -->
+        <!-- T8: foto — QR celular + fallback local -->
         <hr class="my-3">
         <div class="mb-1">
-          <label class="form-label text-muted mb-1" style="font-size:0.75rem">📷 Foto de la muestra (opcional)</label>
+          <label class="form-label text-muted mb-2" style="font-size:0.75rem">📷 Foto de la muestra (opcional)</label>
+
+          <!-- QR panel -->
+          <div id="qrPanel" class="text-center mb-2">
+            <button class="btn btn-sm btn-outline-secondary w-100 mb-2" onclick="generateFotoQR()">
+              📱 Generar QR para foto desde celular
+            </button>
+            <div id="qrContainer" style="display:none">
+              <div id="qrCode" class="d-inline-block p-2 bg-white border rounded mb-1"></div>
+              <div class="text-muted" style="font-size:0.7rem">Escanea con tu celular · expira en <span id="qrTimer">10:00</span></div>
+              <div id="qrStatus" class="mt-1" style="font-size:0.8rem"></div>
+              <img id="qrPreview" style="display:none;max-width:100%;border-radius:6px;margin-top:6px" alt="preview foto">
+            </div>
+          </div>
+
+          <!-- fallback local -->
+          <div class="text-muted text-center mb-1" style="font-size:0.72rem">— o subir desde este dispositivo —</div>
           <input type="file" class="form-control form-control-sm" id="ensayoFoto" accept="image/*" capture="environment">
           <div class="text-muted mt-1" style="font-size:0.68rem">JPG o HEIC desde cámara o galería. Se guarda junto al ensayo al detener la grabación.</div>
         </div>
@@ -1062,8 +1079,28 @@ function updateEnsayoChip(meta){
   if(meta.operador) tituloEl.textContent += ` · ${meta.operador}`;
 }
 
-// F2.5: subir foto después de guardar
+// F2.5 + T8: subir foto después de guardar (local o QR)
 function uploadPendingFoto(name){
+  // T8: if QR foto received, claim it
+  if(_qrToken){
+    fetch(`/api/foto/token/${_qrToken}/status`).then(r=>r.json()).then(d=>{
+      if(d.ready){
+        fetch(`/api/foto/token/${_qrToken}/claim`,{
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({name})
+        }).then(r=>r.json()).then(c=>{ if(c.ok) console.log('QR foto guardada:', c.path); });
+        _qrToken = null;
+        return;
+      }
+      // fallback to local file
+      _uploadLocalFoto(name);
+    });
+    return;
+  }
+  _uploadLocalFoto(name);
+}
+
+function _uploadLocalFoto(name){
   const input = document.getElementById('ensayoFoto');
   if(!input.files || !input.files[0]) return;
   const fd = new FormData();
@@ -1459,10 +1496,63 @@ function clearAnalisis() {
   loadAnalisisList();
 }
 
-document.getElementById('tabAnalisisLink').addEventListener('shown.bs.tab', loadAnalisisList);
+// T8: QR foto desde celular
+let _qrToken = null;
+let _qrPollInterval = null;
+let _qrTimerInterval = null;
+let _qrExpires = 0;
 
-const _origLoadSessions = loadSessions;
-loadSessions = function() { _origLoadSessions(); loadAnalisisList(); };
-</script>
+function generateFotoQR(){
+  // reset state
+  clearQRState();
+  fetch('/api/foto/token', {method:'POST'}).then(r=>r.json()).then(d=>{
+    if(!d.ok) return;
+    _qrToken = d.token;
+    _qrExpires = Date.now() + 600000;
+    const container = document.getElementById('qrContainer');
+    const qrDiv = document.getElementById('qrCode');
+    qrDiv.innerHTML = '';
+    container.style.display = 'block';
+    new QRCode(qrDiv, {text: d.url, width:160, height:160, correctLevel: QRCode.CorrectLevel.M});
+    document.getElementById('qrStatus').textContent = '⏳ Esperando foto...';
+    document.getElementById('qrStatus').style.color = '#666';
+    // timer countdown
+    _qrTimerInterval = setInterval(()=>{
+      const left = Math.max(0, Math.floor((_qrExpires - Date.now())/1000));
+      const m = String(Math.floor(left/60)).padStart(2,'0');
+      const s = String(left%60).padStart(2,'0');
+      document.getElementById('qrTimer').textContent = `${m}:${s}`;
+      if(left === 0) clearQRState();
+    }, 1000);
+    // poll for foto
+    _qrPollInterval = setInterval(pollFotoStatus, 2000);
+  });
+}
+
+function pollFotoStatus(){
+  if(!_qrToken) return;
+  fetch(`/api/foto/token/${_qrToken}/status`).then(r=>r.json()).then(d=>{
+    if(!d.ok){ clearQRState(); return; }
+    if(d.ready){
+      clearInterval(_qrPollInterval); _qrPollInterval = null;
+      document.getElementById('qrStatus').textContent = '✅ Foto recibida desde celular';
+      document.getElementById('qrStatus').style.color = '#16a34a';
+      if(d.preview){
+        const img = document.getElementById('qrPreview');
+        img.src = d.preview; img.style.display = 'block';
+      }
+    }
+  });
+}
+
+function clearQRState(){
+  if(_qrPollInterval){ clearInterval(_qrPollInterval); _qrPollInterval = null; }
+  if(_qrTimerInterval){ clearInterval(_qrTimerInterval); _qrTimerInterval = null; }
+}
+
+// reset QR when modal closes
+document.getElementById('ensayoModal').addEventListener('hidden.bs.modal', clearQRState);
+
+
 </body>
 </html>
