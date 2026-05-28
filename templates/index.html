@@ -403,6 +403,28 @@
             </div>
             <div class="text-muted" style="font-size:0.68rem">Cuando el valor del sensor alcance o supere este umbral, se emitirá una alerta sonora y visual.</div>
           </div>
+
+          <!-- T7: Tipos de ensayo predefinidos -->
+          <div class="card p-3 mt-3">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+              <span class="fw-semibold">🗂 Tipos de ensayo</span>
+            </div>
+            <div id="tiposListConfig" class="mb-3"></div>
+            <div class="row g-1">
+              <div class="col-4">
+                <input type="text" class="form-control form-control-sm" id="inpTipoKey" placeholder="clave (ej. flex_viga)"
+                       style="font-size:0.75rem">
+                <div class="text-muted mt-1" style="font-size:0.65rem">minúsculas, sin espacios</div>
+              </div>
+              <div class="col-5">
+                <input type="text" class="form-control form-control-sm" id="inpTipoLabel" placeholder="Nombre visible"
+                       style="font-size:0.75rem">
+              </div>
+              <div class="col-3">
+                <button class="btn btn-sm btn-primary w-100" onclick="addTipo()">+ Agregar</button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -423,10 +445,7 @@
         <div class="mb-3">
           <label class="form-label fw-semibold mb-1" style="font-size:0.82rem">Tipo de ensayo</label>
           <select class="form-select form-select-sm" id="ensayoTipo">
-            <option value="comp_cubo">Compresión cubo</option>
-            <option value="comp_piso">Compresión piso</option>
-            <option value="def_esquina">Deformación esquina piso</option>
-            <option value="def_total">Deformación total</option>
+            <!-- populated dynamically by loadTipos() -->
           </select>
         </div>
 
@@ -924,10 +943,86 @@ function toggleRecord(){
 }
 
 // ── F2: ensayo metadata ───────────────────────────────────────────────────────
+// T7: tipos cache
+let _tiposCache = {};
+
+function loadTipos(callback){
+  fetch('/api/ensayo/tipos').then(r=>r.json()).then(tipos=>{
+    _tiposCache = tipos;
+    // update modal dropdown
+    const sel = document.getElementById('ensayoTipo');
+    const cur = sel.value;
+    sel.innerHTML = '';
+    Object.entries(tipos).forEach(([k,v])=>{
+      const o = document.createElement('option');
+      o.value = k; o.textContent = v;
+      sel.appendChild(o);
+    });
+    if(cur && tipos[cur]) sel.value = cur;
+    // update config list
+    renderTiposList(tipos);
+    if(callback) callback(tipos);
+  });
+}
+
+function renderTiposList(tipos){
+  const el = document.getElementById('tiposListConfig');
+  if(!el) return;
+  const entries = Object.entries(tipos);
+  if(!entries.length){ el.innerHTML='<div class="text-muted small">Sin tipos definidos</div>'; return; }
+  el.innerHTML = entries.map(([k,v])=>`
+    <div class="d-flex align-items-center justify-content-between mb-1">
+      <div>
+        <span class="badge bg-secondary me-1" style="font-size:0.65rem">${k}</span>
+        <span style="font-size:0.8rem">${v}</span>
+      </div>
+      <button class="btn btn-sm btn-outline-danger py-0 px-1" style="font-size:0.7rem"
+              onclick="deleteTipo('${k}')">✕</button>
+    </div>`).join('');
+}
+
+function addTipo(){
+  const key   = document.getElementById('inpTipoKey').value.trim().toLowerCase().replace(/\s+/g,'_');
+  const label = document.getElementById('inpTipoLabel').value.trim();
+  if(!key || !label){ alert('Clave y nombre requeridos'); return; }
+  if(!/^[a-z0-9_]{1,40}$/.test(key)){ alert('Clave: solo minúsculas, números y _'); return; }
+  fetch('/api/ensayo/tipos',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({key,label})})
+    .then(r=>r.json()).then(d=>{
+      if(d.tipos){
+        _tiposCache = d.tipos;
+        renderTiposList(d.tipos);
+        // update modal dropdown
+        const sel = document.getElementById('ensayoTipo');
+        const opt = document.createElement('option');
+        opt.value = key; opt.textContent = label;
+        sel.appendChild(opt);
+        document.getElementById('inpTipoKey').value = '';
+        document.getElementById('inpTipoLabel').value = '';
+      }
+    });
+}
+
+function deleteTipo(key){
+  if(!confirm(`¿Eliminar tipo "${_tiposCache[key]}"?`)) return;
+  fetch(`/api/ensayo/tipos/${encodeURIComponent(key)}`,{method:'DELETE'})
+    .then(r=>r.json()).then(d=>{
+      if(d.tipos){ _tiposCache = d.tipos; renderTiposList(d.tipos);
+        // remove from modal dropdown
+        const sel = document.getElementById('ensayoTipo');
+        const opt = sel.querySelector(`option[value="${key}"]`);
+        if(opt) opt.remove();
+      }
+    });
+}
+
 function loadEnsayoMeta(){
   fetch('/api/ensayo/meta').then(r=>r.json()).then(m=>{
     _currentMeta = m;
-    document.getElementById('ensayoTipo').value      = m.tipo||'comp_cubo';
+    loadTipos(()=>{
+      if(m.tipo && document.getElementById('ensayoTipo').querySelector(`option[value="${m.tipo}"]`))
+        document.getElementById('ensayoTipo').value = m.tipo;
+    });
     document.getElementById('ensayoMaterial').value  = m.material||'';
     document.getElementById('ensayoDimensiones').value = m.dimensiones||'';
     document.getElementById('ensayoOperador').value  = m.operador||'';

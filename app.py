@@ -75,12 +75,28 @@ DEFAULT_FILTER = {
     'stop_count':         15,
 }
 
-ENSAYO_TIPOS = {
-    'comp_cubo':    'Compresión cubo',
-    'comp_piso':    'Compresión piso',
-    'def_esquina':  'Deformación esquina piso',
-    'def_total':    'Deformación total',
+ENSAYO_TIPOS_FILE = os.path.join(BASE_DIR, 'ensayo_tipos.json')
+_ENSAYO_TIPOS_DEFAULT = {
+    'comp_cubo':   'Compresión cubo',
+    'comp_piso':   'Compresión piso',
+    'def_esquina': 'Deformación esquina piso',
+    'def_total':   'Deformación total',
 }
+
+def _load_ensayo_tipos():
+    if os.path.exists(ENSAYO_TIPOS_FILE):
+        try:
+            with open(ENSAYO_TIPOS_FILE) as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return dict(_ENSAYO_TIPOS_DEFAULT)
+
+def _save_ensayo_tipos(tipos):
+    with open(ENSAYO_TIPOS_FILE, 'w') as f:
+        json.dump(tipos, f, indent=2, ensure_ascii=False)
+
+ENSAYO_TIPOS = _load_ensayo_tipos()
 
 # ── state ──────────────────────────────────────────────────────────────────────
 _lock                 = threading.Lock()
@@ -428,7 +444,6 @@ def disconnect():
     _ser_running = False
     return jsonify({'ok': True})
 
-# F2: endpoint para setear metadata del ensayo
 @app.route('/api/ensayo/meta', methods=['GET'])
 @login_required
 def get_ensayo_meta():
@@ -441,6 +456,40 @@ def post_ensayo_meta():
     body = request.json or {}
     _ensayo_meta.update({k: v for k, v in body.items() if k in _ensayo_meta})
     return jsonify({'ok': True, 'meta': _ensayo_meta})
+
+# T7: gestión de tipos de ensayo
+@app.route('/api/ensayo/tipos', methods=['GET'])
+@login_required
+def get_ensayo_tipos():
+    return jsonify(ENSAYO_TIPOS)
+
+@app.route('/api/ensayo/tipos', methods=['POST'])
+@login_required
+def post_ensayo_tipos():
+    global ENSAYO_TIPOS
+    body = request.json or {}
+    key   = body.get('key', '').strip()
+    label = body.get('label', '').strip()
+    if not key or not label:
+        abort(400, 'key y label requeridos')
+    if not re.match(r'^[a-z0-9_]{1,40}$', key):
+        abort(400, 'key solo letras minúsculas, números y _')
+    ENSAYO_TIPOS[key] = label
+    _save_ensayo_tipos(ENSAYO_TIPOS)
+    return jsonify({'ok': True, 'tipos': ENSAYO_TIPOS})
+
+@app.route('/api/ensayo/tipos/<key>', methods=['DELETE'])
+@login_required
+def delete_ensayo_tipo(key):
+    global ENSAYO_TIPOS
+    key = key.strip()
+    if key not in ENSAYO_TIPOS:
+        abort(404, 'tipo no encontrado')
+    if len(ENSAYO_TIPOS) <= 1:
+        abort(400, 'debe quedar al menos un tipo')
+    del ENSAYO_TIPOS[key]
+    _save_ensayo_tipos(ENSAYO_TIPOS)
+    return jsonify({'ok': True, 'tipos': ENSAYO_TIPOS})
 
 @app.route('/api/record/start', methods=['POST'])
 @login_required
