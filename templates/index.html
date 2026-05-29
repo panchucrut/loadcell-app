@@ -927,12 +927,19 @@ function resetRefRange(){
 }
 function refreshPorts(autoConnect=false){
   fetch('/api/ports').then(r=>r.json()).then(ports=>{
-    const sel=document.getElementById('portSelect'),prev=sel.value;
+    const sel=document.getElementById('portSelect');
+    if(!sel) return;
+    const prev=sel.value;
     sel.innerHTML='<option value="">— seleccionar puerto —</option>';
-    ports.forEach(p=>{const o=document.createElement('option');o.value=p.port;o.textContent=`${p.port}  (${p.desc.slice(0,30)})`;sel.appendChild(o);});
+    ports.forEach(p=>{
+      const o=document.createElement('option');
+      o.value=p.port;
+      o.textContent=`${p.port}  (${p.desc.slice(0,30)})`;
+      sel.appendChild(o);
+    });
     if(ports.length===1){sel.value=ports[0].port;if(autoConnect&&!connected)toggleConnect();}
     else if(prev)sel.value=prev;
-  });
+  }).catch(e=>console.error('refreshPorts error:',e));
 }
 function toggleConnect(){
   if(connected){fetch('/api/disconnect',{method:'POST'});}
@@ -1338,6 +1345,8 @@ socket.on('auto_record', e=>{
 });
 
 buildToggles(); loadSessions(); refreshPorts(true); loadFilter(); loadEnsayoMeta();
+// retry ports after DOM fully settled
+setTimeout(()=>refreshPorts(false), 800);
 
 // ── F3: Análisis ──────────────────────────────────────────────────────────────
 const AN_COLORS = ['#e6194b','#3cb44b','#4363d8','#f58231','#911eb4','#42d4f4'];
