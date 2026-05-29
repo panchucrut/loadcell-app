@@ -130,6 +130,7 @@ _ensayo_meta = {
 }
 
 _med_bufs = {f'celda_{i}': deque() for i in range(1, 10)}
+_pressure_buf = deque(maxlen=60)  # buffer para zero de presión
 _last_raw = {}
 
 import re as _re
@@ -282,6 +283,8 @@ def _serial_worker():
                 raw  = json.loads(line)
                 with _lock:
                     _last_raw.update(raw)
+                    if 'pressure' in raw:
+                        _pressure_buf.append(float(raw['pressure']))
                 cal  = load_cal()
                 cfg  = load_filter()
                 data = apply_cal(raw, cal, cfg)
@@ -783,15 +786,15 @@ def calibrate_zero():
 @app.route('/api/calibrate/pressure/zero', methods=['POST'])
 @login_required
 def calibrate_pressure_zero():
-    with _lock:
-        raw = dict(_last_raw)
-    if not raw:
+    if not _pressure_buf:
         return jsonify({'ok': False, 'msg': 'Sin datos del Arduino'}), 400
-    current_pressure = float(raw.get('pressure', 0))
+    avg = round(sum(_pressure_buf) / len(_pressure_buf), 4)
     cfg = load_filter()
-    cfg['pressure_offset'] = current_pressure
+    cfg['pressure_offset'] = avg
     save_filter(cfg)
-    return jsonify({'ok': True, 'offset': current_pressure, 'msg': f'Zero presión: {current_pressure:.2f} bar'})
+    n = len(_pressure_buf)
+    return jsonify({'ok': True, 'offset': avg, 'samples': n,
+                    'msg': f'Zero presión: {avg:.2f} bar (promedio {n} lecturas)'})
 
 
 @login_required
