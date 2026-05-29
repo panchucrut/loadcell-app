@@ -1310,7 +1310,7 @@ function loadRefs(){
 }
 
 document.getElementById('tabRefLink').addEventListener('shown.bs.tab', loadRefs);
-document.getElementById('tabAnalisisLink').addEventListener('shown.bs.tab', loadAnalisisList);
+document.getElementById('tabAnalisisLink').addEventListener('shown.bs.tab', () => { initAnalisisCharts(); loadAnalisisList(); });
 
 // ── Filter ────────────────────────────────────────────────────────────────────
 function loadFilter(){
@@ -1381,27 +1381,30 @@ const _anChartOpts = (xLabel, yLabel) => ({
   elements: { point: { radius: 0 } },
 });
 
-const analisisChart = new Chart(document.getElementById('analisisChart').getContext('2d'), {
-  type: 'scatter', data: { datasets: [] },
-  options: {
-    ..._anChartOpts('Deformación (mm)', 'Carga total (kg)'),
-    elements: { point: { radius: 1.5 } },
-    plugins: {
-      legend: { display: false },
-      tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: (${ctx.parsed.x.toFixed(2)} mm, ${ctx.parsed.y.toFixed(1)} kg)` } }
-    },
-  }
-});
+let analisisChart, anChartCargaT, anChartDistT;
 
-const anChartCargaT = new Chart(document.getElementById('anChartCargaT').getContext('2d'), {
-  type: 'line', data: { labels: [], datasets: [] },
-  options: _anChartOpts('Tiempo (s)', 'Carga total (kg)'),
-});
-
-const anChartDistT = new Chart(document.getElementById('anChartDistT').getContext('2d'), {
-  type: 'line', data: { labels: [], datasets: [] },
-  options: _anChartOpts('Tiempo (s)', 'Distancia (mm)'),
-});
+function initAnalisisCharts() {
+  if (analisisChart) return; // ya inicializado
+  analisisChart = new Chart(document.getElementById('analisisChart').getContext('2d'), {
+    type: 'scatter', data: { datasets: [] },
+    options: {
+      ..._anChartOpts('Deformación (mm)', 'Carga total (kg)'),
+      elements: { point: { radius: 1.5 } },
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: (${ctx.parsed.x.toFixed(2)} mm, ${ctx.parsed.y.toFixed(1)} kg)` } }
+      },
+    }
+  });
+  anChartCargaT = new Chart(document.getElementById('anChartCargaT').getContext('2d'), {
+    type: 'line', data: { labels: [], datasets: [] },
+    options: _anChartOpts('Tiempo (s)', 'Carga total (kg)'),
+  });
+  anChartDistT = new Chart(document.getElementById('anChartDistT').getContext('2d'), {
+    type: 'line', data: { labels: [], datasets: [] },
+    options: _anChartOpts('Tiempo (s)', 'Distancia (mm)'),
+  });
+}
 
 function loadAnalisisList() {
   fetch('/api/sessions').then(r => r.json()).then(list => {
@@ -1438,6 +1441,7 @@ function toggleAnalisisItem(name) {
 }
 
 function renderAnalisis() {
+  initAnalisisCharts();
   const names = Array.from(_anSelected);
   const legend = document.getElementById('analisisLegend');
   legend.innerHTML = '';
