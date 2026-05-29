@@ -614,6 +614,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 <script>
+console.log('[SP] script start');
 const COLORS    = ['#e6194b','#3cb44b','#4363d8','#f58231','#911eb4','#42d4f4','#f032e6','#bfef45','#a9a9a9'];
 const CELL_KEYS = Array.from({length:9}, (_,i) => `celda_${i+1}`);
 const MAX_PTS   = 3000;
@@ -1344,9 +1345,12 @@ socket.on('auto_record', e=>{
   }
 });
 
-buildToggles(); loadSessions(); refreshPorts(true); loadFilter(); loadEnsayoMeta();
-// retry ports after DOM fully settled
-setTimeout(()=>refreshPorts(false), 800);
+document.addEventListener('DOMContentLoaded', function() {
+  console.log('[SP] DOM ready, init start');
+  buildToggles(); loadSessions(); refreshPorts(true); loadFilter(); loadEnsayoMeta();
+  setTimeout(()=>refreshPorts(false), 800);
+  console.log('[SP] init done');
+});
 
 // ── F3: Análisis ──────────────────────────────────────────────────────────────
 const AN_COLORS = ['#e6194b','#3cb44b','#4363d8','#f58231','#911eb4','#42d4f4'];
