@@ -1456,8 +1456,8 @@ function renderAnalisis() {
     results.forEach((r, idx) => {
       const color = AN_COLORS[idx % AN_COLORS.length];
       const meta  = r.name.replace(/^(comp_cubo_|comp_piso_|def_esquina_|def_total_|sesion_)/, '');
-      const dimArr  = r.data.dimension || [];
-      const tArr    = r.data.t || [];
+      const dimArr  = r.data.dimension || r.data.stroke || r.data.stroke_rel || [];
+      const tArr    = r.data.t_rel || r.data.t || [];
       const totalArr = dimArr.map((_, i) => {
         let s = 0;
         for (let c = 1; c <= 9; c++) { const v = r.data[`celda_${c}`]; s += v ? (v[i] || 0) : 0; }
@@ -1496,9 +1496,9 @@ function renderAnalisis() {
     });
 
     // Labels de tiempo (usar el ensayo más largo)
-    const maxLen = Math.max(...results.map(r => (r.data.t || []).length), 0);
-    const longestT = results.find(r => (r.data.t || []).length === maxLen);
-    const timeLabels = longestT ? longestT.data.t.map(v => parseFloat(v).toFixed(1)) : [];
+    const maxLen = Math.max(...results.map(r => (r.data.t_rel || r.data.t || []).length), 0);
+    const longestT = results.find(r => (r.data.t_rel || r.data.t || []).length === maxLen);
+    const timeLabels = longestT ? (longestT.data.t_rel || longestT.data.t).map(v => parseFloat(v).toFixed(1)) : [];
 
     analisisChart.data.datasets = dsCargaDef;
     analisisChart.update();
