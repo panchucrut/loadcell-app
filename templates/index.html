@@ -125,6 +125,9 @@
               <span class="text-muted">Y:</span>
               <input type="number" id="c1YMin" class="form-control form-control-sm" style="width:72px" placeholder="Mín" oninput="applyRange(chartCarga,'c1')">
               <input type="number" id="c1YMax" class="form-control form-control-sm" style="width:72px" placeholder="Máx" oninput="applyRange(chartCarga,'c1')">
+              <span class="text-muted ms-2">Y2 (bar):</span>
+              <input type="number" id="c1Y2Min" class="form-control form-control-sm" style="width:72px" placeholder="Mín" oninput="applyRange(chartCarga,'c1')">
+              <input type="number" id="c1Y2Max" class="form-control form-control-sm" style="width:72px" placeholder="Máx" oninput="applyRange(chartCarga,'c1')">
               <button class="btn btn-sm btn-outline-secondary" onclick="resetRange(chartCarga,'c1')">↺</button>
             </div>
             <!-- Chart 2: Distancia vs Tiempo -->
@@ -766,6 +769,12 @@ function applyRange(ch, prefix){
   const yMax=document.getElementById(prefix+'YMax').value;
   ch.options.scales.y.min = yMin!=='' ? parseFloat(yMin) : undefined;
   ch.options.scales.y.max = yMax!=='' ? parseFloat(yMax) : undefined;
+  if(prefix==='c1' && ch.options.scales.y2){
+    const y2Min=document.getElementById('c1Y2Min').value;
+    const y2Max=document.getElementById('c1Y2Max').value;
+    ch.options.scales.y2.min = y2Min!=='' ? parseFloat(y2Min) : undefined;
+    ch.options.scales.y2.max = y2Max!=='' ? parseFloat(y2Max) : undefined;
+  }
   if(prefix==='c3'){
     const xMin=document.getElementById('c3XMin').value;
     const xMax=document.getElementById('c3XMax').value;
@@ -777,6 +786,10 @@ function applyRange(ch, prefix){
 function resetRange(ch, prefix){
   [prefix+'YMin', prefix+'YMax'].forEach(id=>{document.getElementById(id).value='';});
   ch.options.scales.y.min=undefined; ch.options.scales.y.max=undefined;
+  if(prefix==='c1' && ch.options.scales.y2){
+    ['c1Y2Min','c1Y2Max'].forEach(id=>{document.getElementById(id).value='';});
+    ch.options.scales.y2.min=undefined; ch.options.scales.y2.max=undefined;
+  }
   if(prefix==='c3'){
     ['c3XMin','c3XMax'].forEach(id=>{document.getElementById(id).value='';});
     ch.options.scales.x.min=undefined; ch.options.scales.x.max=undefined;
