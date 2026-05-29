@@ -52,14 +52,20 @@ def _msal_app():
         client_credential=AZURE_CLIENT_SECRET,
     )
 
+_LOCAL_MODE = os.getenv('LOCAL_MODE', 'false').lower() == 'true'
+
 def login_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
+        if _LOCAL_MODE:
+            return f(*args, **kwargs)
         if not session.get('user'):
             return redirect(url_for('auth_login', next=request.url))
         return f(*args, **kwargs)
     return decorated
 _ALLOWED_ORIGINS = os.getenv('ALLOWED_ORIGINS', 'https://sensores.dexfloor.com').split(',')
+if _LOCAL_MODE and 'http://localhost:5050' not in _ALLOWED_ORIGINS:
+    _ALLOWED_ORIGINS.append('http://localhost:5050')
 socketio = SocketIO(app, cors_allowed_origins=_ALLOWED_ORIGINS, async_mode='threading')
 
 DEFAULT_CAL = {
