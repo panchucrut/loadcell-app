@@ -539,6 +539,8 @@
             <p class="text-muted small mb-2">Sin carga. Toma los valores raw actuales como offset cero para las 9 celdas.</p>
             <button class="btn btn-sm btn-primary" onclick="doZero()">Tomar zero ahora</button>
             <span id="zeroStatus" class="ms-2 small text-muted"></span>
+            <button class="btn btn-sm btn-outline-secondary ms-2" onclick="doPressureZero()">Zero presión</button>
+            <span id="pressureZeroStatus" class="ms-2 small text-muted"></span>
           </div>
         </div>
 
@@ -1151,6 +1153,13 @@ function doZero(){
   const el=document.getElementById('zeroStatus'); el.textContent='Tomando…'; el.className='ms-2 small text-muted';
   fetch('/api/calibrate/zero',{method:'POST'}).then(r=>r.json()).then(d=>{
     el.textContent=d.ok?'✅ Zero seteado':'⚠ '+d.msg;
+    el.className='ms-2 small '+(d.ok?'text-success':'text-danger');
+  });
+}
+function doPressureZero(){
+  const el=document.getElementById('pressureZeroStatus'); el.textContent='Tomando…'; el.className='ms-2 small text-muted';
+  fetch('/api/calibrate/pressure/zero',{method:'POST'}).then(r=>r.json()).then(d=>{
+    el.textContent=d.ok?`✅ ${d.msg}`:'⚠ '+d.msg;
     el.className='ms-2 small '+(d.ok?'text-success':'text-danger');
   });
 }

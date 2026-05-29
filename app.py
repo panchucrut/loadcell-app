@@ -207,7 +207,7 @@ def apply_cal(raw, cal):
     raw_s = float(raw.get('dimension', 0))
     span = sc['raw_max'] - sc['raw_min']
     out['dimension'] = round((raw_s - sc['raw_min']) / span * (sc['mm_max'] - sc['mm_min']) + sc['mm_min'], 2) if span != 0 else round(raw_s, 2)
-    out['pressure'] = round(float(raw.get('pressure', 0)), 2)
+    out['pressure'] = round((float(raw.get('pressure', 0)) - float(cfg.get('pressure_offset', 0.0))), 2)
     return out
 
 def apply_filter(data, cfg):
@@ -777,7 +777,20 @@ def calibrate_zero():
     save_cal(cal)
     return jsonify({'ok': True, 'msg': 'Zero seteado para las 9 celdas'})
 
-@app.route('/api/calibrate/dimension', methods=['POST'])
+@app.route('/api/calibrate/pressure/zero', methods=['POST'])
+@login_required
+def calibrate_pressure_zero():
+    with _lock:
+        raw = dict(_last_raw)
+    if not raw:
+        return jsonify({'ok': False, 'msg': 'Sin datos del Arduino'}), 400
+    current_pressure = float(raw.get('pressure', 0))
+    cfg = load_filter()
+    cfg['pressure_offset'] = current_pressure
+    save_filter(cfg)
+    return jsonify({'ok': True, 'offset': current_pressure, 'msg': f'Zero presión: {current_pressure:.2f} bar'})
+
+
 @login_required
 def calibrate_dimension():
     with _lock:
