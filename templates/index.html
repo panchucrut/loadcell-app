@@ -1473,6 +1473,7 @@ function renderAnalisis() {
     results.forEach((r, idx) => {
       const color = AN_COLORS[idx % AN_COLORS.length];
       const meta  = r.name.replace(/^(comp_cubo_|comp_piso_|def_esquina_|def_total_|sesion_)/, '');
+      // compat: CSVs viejos guardaban columna 'stroke'/'stroke_rel'; canónico actual = 'dimension'
       const dimArr   = r.data.dimension || r.data.stroke || r.data.stroke_rel || [];
       const tArr     = r.data.t_rel || r.data.t || [];
       const pressArr = r.data.pressure || [];

@@ -130,8 +130,10 @@ _ensayo_meta = {
 }
 
 _med_bufs = {f'celda_{i}': deque() for i in range(1, 10)}
+_zero_bufs = {f'celda_{i}': deque(maxlen=30) for i in range(1, 10)}  # raw crudo p/ tara promediada
 _pressure_buf = deque(maxlen=60)  # buffer para zero de presión
 _last_raw = {}
+_last_data = {}   # última lectura calibrada+filtrada en vivo (para tara manual)
 
 import re as _re
 
@@ -199,6 +201,13 @@ def save_filter(cfg):
 if not os.path.exists(FILTER_FILE):
     save_filter(DEFAULT_FILTER)
 
+def _raw_dimension(raw):
+    """Normaliza el nombre del sensor de distancia en el BORDE de entrada.
+    El Arduino envía 'stroke'. CSVs/firmware viejos podían usar 'stroke_rel'.
+    Nombre canónico interno: 'dimension'. Ningún otro módulo debe mirar 'stroke'.
+    """
+    return float(raw.get('dimension', raw.get('stroke', raw.get('stroke_rel', 0))))
+
 def apply_cal(raw, cal, cfg=None):
     if cfg is None:
         cfg = load_filter()
@@ -207,8 +216,7 @@ def apply_cal(raw, cal, cfg=None):
         k = f'celda_{i}'
         out[k] = round((float(raw.get(k, 0)) - cal[k]['offset']) / cal[k]['scale'], 2)
     sc = load_dimension_cal()
-    # Arduino may send 'stroke' or 'dimension'
-    raw_s = float(raw.get('dimension', raw.get('stroke', raw.get('stroke_rel', 0))))
+    raw_s = _raw_dimension(raw)   # único punto que conoce el naming del Arduino
     span = sc['raw_max'] - sc['raw_min']
     out['dimension'] = round((raw_s - sc['raw_min']) / span * (sc['mm_max'] - sc['mm_min']) + sc['mm_min'], 2) if span != 0 else round(raw_s, 2)
     out['pressure'] = round((float(raw.get('pressure', 0)) - float(cfg.get('pressure_offset', 0.0))), 2)
@@ -285,11 +293,18 @@ def _serial_worker():
                     _last_raw.update(raw)
                     if 'pressure' in raw:
                         _pressure_buf.append(float(raw['pressure']))
+                    for i in range(1, 10):
+                        k = f'celda_{i}'
+                        if k in raw:
+                            _zero_bufs[k].append(float(raw[k]))
                 cal  = load_cal()
                 cfg  = load_filter()
                 data = apply_cal(raw, cal, cfg)
                 data = apply_filter(data, cfg)
                 data['t'] = round(time.time() - t0, 2)
+                with _lock:
+                    _last_data.clear()
+                    _last_data.update(data)
 
                 if cfg['auto_record']:
                     total = sum(data[f'celda_{i}'] for i in range(1, 10))
@@ -518,11 +533,13 @@ def delete_ensayo_tipo(key):
 def rec_start():
     global _recording, _session_buf, _t_record_start, _dimension_record_offset
     with _lock:
-        last = dict(_session_buf[-1]) if _session_buf else {}
-        _t_record_start       = last.get('t', 0.0)
-        _dimension_record_offset = last.get('dimension', 0.0)
-        _session_buf          = []
-        _recording            = True
+        # Tara: tomar offset de la última lectura EN VIVO, no del buffer
+        # (en grabado manual el buffer está vacío al iniciar)
+        live = dict(_last_data)
+        _t_record_start          = live.get('t', 0.0)
+        _dimension_record_offset = live.get('dimension', 0.0)
+        _session_buf             = []
+        _recording               = True
     return jsonify({'ok': True})
 
 @app.route('/api/record/stop', methods=['POST'])
@@ -776,17 +793,21 @@ def foto_token_claim(token):
 @app.route('/api/calibrate/zero', methods=['POST'])
 @login_required
 def calibrate_zero():
+    # Promediar las muestras crudas del buffer de cada celda reduce ruido
+    # en la tara (una sola lectura puede estar contaminada).
     with _lock:
         raw = dict(_last_raw)
+        bufs = {f'celda_{i}': list(_zero_bufs[f'celda_{i}']) for i in range(1, 10)}
     if not raw:
         return jsonify({'ok': False, 'msg': 'Sin datos del Arduino'}), 400
     cal = load_cal()
     for i in range(1, 10):
         k = f'celda_{i}'
-        if k in raw:
-            cal[k]['offset'] = float(raw[k])
+        samples = bufs.get(k) or ([float(raw[k])] if k in raw else [])
+        if samples:
+            cal[k]['offset'] = round(sum(samples) / len(samples), 1)
     save_cal(cal)
-    return jsonify({'ok': True, 'msg': 'Zero seteado para las 9 celdas'})
+    return jsonify({'ok': True, 'msg': 'Zero seteado para las 9 celdas (promediado)'})
 
 @app.route('/api/calibrate/pressure/zero', methods=['POST'])
 @login_required
@@ -810,7 +831,7 @@ def calibrate_dimension():
         return jsonify({'ok': False, 'msg': 'Sin datos del Arduino'}), 400
     point = (request.json or {}).get('point')
     sc = load_dimension_cal()
-    raw_val = float(raw.get('dimension', 0))
+    raw_val = _raw_dimension(raw)   # acepta 'stroke' del Arduino
     if point == 'min':
         sc['raw_min'] = raw_val
     elif point == 'max':
