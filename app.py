@@ -338,9 +338,14 @@ def _serial_worker():
                 socketio.emit('data', data)
                 if _recording:
                     with _lock:
-                        rec = dict(data)
-                        rec['t']      = data['t_rel']
+                        rec = {}
+                        # celdas
+                        for i in range(1, 10):
+                            rec[f'celda_{i}'] = data[f'celda_{i}']
+                        rec['total_kg']  = round(sum(data[f'celda_{i}'] for i in range(1, 10)), 2)
                         rec['dimension'] = data['dimension_rel']
+                        rec['pressure']  = data['pressure']
+                        rec['t']         = data['t_rel']
                         _session_buf.append(rec)
 
             except (json.JSONDecodeError, KeyError):

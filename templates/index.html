@@ -1407,7 +1407,15 @@ function initAnalisisCharts() {
   });
   anChartCargaT = new Chart(document.getElementById('anChartCargaT').getContext('2d'), {
     type: 'line', data: { labels: [], datasets: [] },
-    options: _anChartOpts('Tiempo (s)', 'Carga total (kg)'),
+    options: {
+      ..._anChartOpts('Tiempo (s)', 'Carga total (kg)'),
+      scales: {
+        x: { title: { display: true, text: 'Tiempo (s)', color: '#57606a' }, ticks: { color: '#57606a' }, grid: { color: '#e8ecf0' } },
+        y: { title: { display: true, text: 'Carga total (kg)', color: '#57606a' }, ticks: { color: '#57606a' }, grid: { color: '#e8ecf0' } },
+        y2: { position: 'right', title: { display: true, text: 'Presión (bar)', color: '#f59e0b' },
+               ticks: { color: '#f59e0b' }, grid: { drawOnChartArea: false } },
+      },
+    },
   });
   anChartDistT = new Chart(document.getElementById('anChartDistT').getContext('2d'), {
     type: 'line', data: { labels: [], datasets: [] },
@@ -1465,8 +1473,9 @@ function renderAnalisis() {
     results.forEach((r, idx) => {
       const color = AN_COLORS[idx % AN_COLORS.length];
       const meta  = r.name.replace(/^(comp_cubo_|comp_piso_|def_esquina_|def_total_|sesion_)/, '');
-      const dimArr  = r.data.dimension || r.data.stroke || r.data.stroke_rel || [];
-      const tArr    = r.data.t_rel || r.data.t || [];
+      const dimArr   = r.data.dimension || r.data.stroke || r.data.stroke_rel || [];
+      const tArr     = r.data.t_rel || r.data.t || [];
+      const pressArr = r.data.pressure || [];
       const totalArr = dimArr.map((_, i) => {
         let s = 0;
         for (let c = 1; c <= 9; c++) { const v = r.data[`celda_${c}`]; s += v ? (v[i] || 0) : 0; }
@@ -1478,11 +1487,19 @@ function renderAnalisis() {
         label: meta, data: dimArr.map((x, i) => ({ x: parseFloat(x), y: totalArr[i] })),
         borderColor: color, backgroundColor: color + '22', showLine: true, borderWidth: 2, pointRadius: 0,
       });
-      // Carga vs Tiempo (line)
+      // Carga vs Tiempo (line) + Presión en Y2
       dsCargaT.push({
         label: meta, data: totalArr,
         borderColor: color, backgroundColor: color + '15', borderWidth: 1.5, pointRadius: 0, tension: 0.25,
+        yAxisID: 'y',
       });
+      if (pressArr.length) {
+        dsCargaT.push({
+          label: meta + ' (bar)', data: pressArr,
+          borderColor: color, backgroundColor: 'transparent', borderWidth: 1, pointRadius: 0,
+          tension: 0.25, borderDash: [4, 3], yAxisID: 'y2',
+        });
+      }
       // Distancia vs Tiempo (line)
       dsDistT.push({
         label: meta, data: dimArr.map(v => parseFloat(v)),
