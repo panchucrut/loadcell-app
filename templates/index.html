@@ -860,11 +860,16 @@ function showAlarmPopup(sensor, val, threshold) {
   document.body.appendChild(div);
 }
 
+// Distancia a mostrar EN VIVO: relativa (arranca en 0) mientras se graba,
+// absoluta cuando no. El backend emite dimension_rel en cada 'data'.
+function distLive(d){
+  return recording ? (d.dimension_rel ?? d.dimension) : d.dimension;
+}
 socket.on('data', d=>{
   if(paused)return;
   tBuf.push(d.t);
   CELL_KEYS.forEach((k,i)=>cBufs[i].push(d[k]));
-  sBuf.push(d.dimension); pBuf.push(d.pressure);
+  sBuf.push(distLive(d)); pBuf.push(d.pressure);
   if(tBuf.length>MAX_PTS){tBuf.shift();cBufs.forEach(b=>b.shift());sBuf.shift();pBuf.shift();}
   renderChart(); updateStats(d); checkAlarm(d);
 });
@@ -911,7 +916,7 @@ function updateStats(d){
   document.getElementById('sTotal').textContent=total.toFixed(1);
   document.getElementById('sMaxVal').textContent=maxV.toFixed(1);
   document.getElementById('sMaxName').textContent=`Celda ${maxI+1}`;
-  document.getElementById('sDist').textContent=d.dimension.toFixed(1);
+  document.getElementById('sDist').textContent=distLive(d).toFixed(1);
   document.getElementById('sPress').textContent=d.pressure.toFixed(1);
 }
 
@@ -973,6 +978,7 @@ function toggleRecord(){
     btn.disabled = true;
     fetch('/api/record/start',{method:'POST'}).then(()=>{
       recording=true; btn.disabled = false;
+      clearChart();   // reinicia buffers: distancia/gráfico arrancan en 0 al grabar
       btn.textContent='⏹ Detener';
       document.getElementById('recBadge').classList.remove('d-none');
     }).catch(()=>{ btn.disabled = false; });
@@ -1353,7 +1359,7 @@ function saveFilter(){
 
 socket.on('auto_record', e=>{
   if(e.state==='started'){
-    recording=true;document.getElementById('recBtn').textContent='⏹ Detener';
+    recording=true;clearChart();document.getElementById('recBtn').textContent='⏹ Detener';
     document.getElementById('recBadge').classList.remove('d-none');
   } else {
     recording=false;document.getElementById('recBtn').textContent='⏺ Grabar';
