@@ -198,13 +198,16 @@ def save_filter(cfg):
 if not os.path.exists(FILTER_FILE):
     save_filter(DEFAULT_FILTER)
 
-def apply_cal(raw, cal):
+def apply_cal(raw, cal, cfg=None):
+    if cfg is None:
+        cfg = load_filter()
     out = {}
     for i in range(1, 10):
         k = f'celda_{i}'
         out[k] = round((float(raw.get(k, 0)) - cal[k]['offset']) / cal[k]['scale'], 2)
     sc = load_dimension_cal()
-    raw_s = float(raw.get('dimension', 0))
+    # Arduino may send 'stroke' or 'dimension'
+    raw_s = float(raw.get('dimension', raw.get('stroke', raw.get('stroke_rel', 0))))
     span = sc['raw_max'] - sc['raw_min']
     out['dimension'] = round((raw_s - sc['raw_min']) / span * (sc['mm_max'] - sc['mm_min']) + sc['mm_min'], 2) if span != 0 else round(raw_s, 2)
     out['pressure'] = round((float(raw.get('pressure', 0)) - float(cfg.get('pressure_offset', 0.0))), 2)
@@ -281,7 +284,7 @@ def _serial_worker():
                     _last_raw.update(raw)
                 cal  = load_cal()
                 cfg  = load_filter()
-                data = apply_cal(raw, cal)
+                data = apply_cal(raw, cal, cfg)
                 data = apply_filter(data, cfg)
                 data['t'] = round(time.time() - t0, 2)
 
