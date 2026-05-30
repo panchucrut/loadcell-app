@@ -293,8 +293,15 @@
         <div class="col-xl-3">
           <div class="card p-3">
             <div class="fw-semibold mb-2">Ensayos disponibles</div>
+            <div class="d-flex gap-1 mb-2">
+              <select id="anFiltroTipo" class="form-select form-select-sm" style="font-size:0.72rem" onchange="onAnFilterChange()">
+                <option value="">Todos los tipos</option>
+              </select>
+              <input type="date" id="anFiltroFecha" class="form-control form-control-sm" style="font-size:0.72rem" onchange="onAnFilterChange()">
+              <button class="btn btn-sm btn-outline-secondary px-2" title="Limpiar filtros" onclick="clearAnFilters()">✕</button>
+            </div>
             <div class="text-muted mb-2" style="font-size:0.75rem">Selecciona hasta 6</div>
-            <div id="analisisList" style="max-height:500px;overflow-y:auto"></div>
+            <div id="analisisList" style="max-height:460px;overflow-y:auto"></div>
           </div>
         </div>
       </div>
@@ -1570,11 +1577,45 @@ function initAnalisisCharts() {
   });
 }
 
+let _anFilterTipo = '', _anFilterFecha = '';
+// extrae YYYY-MM-DD del meta.timestamp o del nombre del archivo
+function _sesFecha(s){
+  const ts = (s.meta && s.meta.timestamp) || '';
+  let m = ts.match(/(\d{4}-\d{2}-\d{2})/);
+  if (m) return m[1];
+  m = s.name.match(/(\d{4}-\d{2}-\d{2})/);
+  return m ? m[1] : '';
+}
+function onAnFilterChange(){
+  _anFilterTipo  = document.getElementById('anFiltroTipo').value;
+  _anFilterFecha = document.getElementById('anFiltroFecha').value;
+  loadAnalisisList();
+}
+function clearAnFilters(){
+  _anFilterTipo = _anFilterFecha = '';
+  document.getElementById('anFiltroTipo').value = '';
+  document.getElementById('anFiltroFecha').value = '';
+  loadAnalisisList();
+}
+
 function loadAnalisisList() {
   fetch('/api/sessions').then(r => r.json()).then(list => {
     const el = document.getElementById('analisisList');
+    // poblar opciones de tipo presentes (preservando selección)
+    const tiposPresentes = [...new Set(list.map(s => (s.meta||{}).tipo).filter(Boolean))];
+    const selTipo = document.getElementById('anFiltroTipo');
+    selTipo.innerHTML = '<option value="">Todos los tipos</option>' +
+      tiposPresentes.map(t => `<option value="${t}" ${t===_anFilterTipo?'selected':''}>${TIPO_LABELS[t]||t}</option>`).join('');
+    // aplicar filtros
+    const filtered = list.filter(s => {
+      const tipo = (s.meta||{}).tipo || '';
+      if (_anFilterTipo && tipo !== _anFilterTipo) return false;
+      if (_anFilterFecha && _sesFecha(s) !== _anFilterFecha) return false;
+      return true;
+    });
     if (!list.length) { el.innerHTML = '<div class="text-muted small">Sin sesiones grabadas</div>'; return; }
-    el.innerHTML = list.map((s, idx) => {
+    if (!filtered.length) { el.innerHTML = '<div class="text-muted small">Sin ensayos para el filtro</div>'; return; }
+    el.innerHTML = filtered.map((s, idx) => {
       const meta  = s.meta || {};
       const tipo  = meta.tipo || '';
       const label = s.name.replace(/^(comp_cubo_|comp_piso_|def_esquina_|def_total_|sesion_)/, '');
