@@ -351,24 +351,7 @@
               </div>
               <span id="autoRecStatus" class="badge bg-secondary">off</span>
             </div>
-
-            <div class="mb-2">
-              <label class="form-label mb-0 text-muted" style="font-size:0.75rem">
-                Umbral disparo: <strong id="lblTrigger">30</strong> kg total
-              </label>
-              <input type="range" class="form-range" id="sliderTrigger" min="5" max="500" step="5" value="30"
-                     oninput="document.getElementById('lblTrigger').textContent=this.value">
-            </div>
-            <div class="row g-1">
-              <div class="col-6">
-                <label class="text-muted" style="font-size:0.7rem">Lecturas inicio</label>
-                <input type="number" class="form-control form-control-sm" id="inpTrigCount" value="8" min="1" max="50">
-              </div>
-              <div class="col-6">
-                <label class="text-muted" style="font-size:0.7rem">Lecturas stop</label>
-                <input type="number" class="form-control form-control-sm" id="inpStopCount" value="15" min="1" max="100">
-              </div>
-            </div>
+            <div class="text-muted" style="font-size:0.68rem">Los umbrales de disparo y término se configuran por tipo de ensayo (panel de la derecha).</div>
           </div>
         </div>
 
@@ -438,6 +421,71 @@
                 <button class="btn btn-sm btn-primary w-100" onclick="addTipo()">+ Agregar</button>
               </div>
             </div>
+          </div>
+
+          <!-- Paso 3-UI: parámetros de inicio/término por tipo -->
+          <div class="card p-3 mt-3">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+              <span class="fw-semibold">⚙️ Parámetros por tipo</span>
+              <button class="btn btn-sm btn-primary" onclick="saveEnsayoCfg()">Guardar tipo</button>
+            </div>
+            <div class="mb-3">
+              <label class="form-label mb-0 text-muted" style="font-size:0.75rem">Tipo de ensayo</label>
+              <select class="form-select form-select-sm" id="cfgTipoSel" onchange="loadEnsayoCfgForm()"></select>
+            </div>
+
+            <div class="fw-semibold mb-1" style="font-size:0.8rem">Inicio (disparo)</div>
+            <div class="row g-1 mb-3">
+              <div class="col-6">
+                <label class="text-muted" style="font-size:0.7rem">Umbral carga (kg)</label>
+                <input type="number" class="form-control form-control-sm" id="cfgTriggerKg" step="1" min="0">
+              </div>
+              <div class="col-6">
+                <label class="text-muted" style="font-size:0.7rem">Umbral presión (bar)</label>
+                <input type="number" class="form-control form-control-sm" id="cfgTriggerBar" step="0.5" min="0">
+              </div>
+              <div class="col-6">
+                <label class="text-muted" style="font-size:0.7rem">Lecturas inicio</label>
+                <input type="number" class="form-control form-control-sm" id="cfgTrigCount" min="1" max="50">
+              </div>
+            </div>
+
+            <div class="fw-semibold mb-1" style="font-size:0.8rem">Término por caída</div>
+            <div class="row g-1 mb-3 align-items-end">
+              <div class="col-4">
+                <div class="form-check form-switch mb-0">
+                  <input class="form-check-input" type="checkbox" id="cfgDropEnabled">
+                  <label class="form-check-label" for="cfgDropEnabled" style="font-size:0.75rem">Activar</label>
+                </div>
+              </div>
+              <div class="col-4">
+                <label class="text-muted" style="font-size:0.7rem">Caída %</label>
+                <input type="number" class="form-control form-control-sm" id="cfgDropPct" step="1" min="1" max="99">
+              </div>
+              <div class="col-4">
+                <label class="text-muted" style="font-size:0.7rem">Lecturas stop</label>
+                <input type="number" class="form-control form-control-sm" id="cfgStopCount" min="1" max="100">
+              </div>
+            </div>
+
+            <div class="fw-semibold mb-1" style="font-size:0.8rem">Término por estabilización</div>
+            <div class="row g-1 align-items-end">
+              <div class="col-4">
+                <div class="form-check form-switch mb-0">
+                  <input class="form-check-input" type="checkbox" id="cfgStabEnabled">
+                  <label class="form-check-label" for="cfgStabEnabled" style="font-size:0.75rem">Activar</label>
+                </div>
+              </div>
+              <div class="col-4">
+                <label class="text-muted" style="font-size:0.7rem">Variación %</label>
+                <input type="number" class="form-control form-control-sm" id="cfgStabPct" step="0.5" min="0">
+              </div>
+              <div class="col-4">
+                <label class="text-muted" style="font-size:0.7rem">Segundos planos</label>
+                <input type="number" class="form-control form-control-sm" id="cfgStabSecs" step="0.5" min="0">
+              </div>
+            </div>
+            <div class="text-muted mt-2" style="font-size:0.66rem">Campos vacíos usan el valor por defecto global. Guarda cada tipo por separado.</div>
           </div>
         </div>
       </div>
@@ -1020,6 +1068,7 @@ function loadTipos(callback){
     if(cur && tipos[cur]) sel.value = cur;
     // update config list
     renderTiposList(tipos);
+    if(typeof loadEnsayoCfg==='function') loadEnsayoCfg();
     if(callback) callback(tipos);
   });
 }
@@ -1337,10 +1386,6 @@ function loadFilter(){
     document.getElementById('autoRecToggle').checked=cfg.auto_record;
     document.getElementById('autoRecStatus').textContent=cfg.auto_record?'on':'off';
     document.getElementById('autoRecStatus').className=cfg.auto_record?'badge bg-success':'badge bg-secondary';
-    document.getElementById('sliderTrigger').value=cfg.trigger_kg;
-    document.getElementById('lblTrigger').textContent=cfg.trigger_kg;
-    document.getElementById('inpTrigCount').value=cfg.trigger_count;
-    document.getElementById('inpStopCount').value=cfg.stop_count;
   });
 }
 function saveFilter(){
@@ -1351,10 +1396,66 @@ function saveFilter(){
     median_window:parseInt(document.getElementById('sliderWindow').value),
     noise_floor:parseFloat(document.getElementById('sliderFloor').value),
     auto_record:auto,
-    trigger_kg:parseFloat(document.getElementById('sliderTrigger').value),
-    trigger_count:parseInt(document.getElementById('inpTrigCount').value),
-    stop_count:parseInt(document.getElementById('inpStopCount').value),
   })});
+}
+
+// Paso 3-UI: parámetros de inicio/término por tipo
+let _ensayoCfg = {}, _ensayoCfgDefaults = {};
+function _setCfgVal(id, val, def){
+  document.getElementById(id).value = (val !== undefined && val !== null) ? val
+                                      : (def !== undefined ? def : '');
+}
+function loadEnsayoCfg(){
+  fetch('/api/ensayo/config').then(r=>r.json()).then(d=>{
+    _ensayoCfg = d.config || {};
+    _ensayoCfgDefaults = d.defaults || {};
+    const sel = document.getElementById('cfgTipoSel');
+    if(!sel) return;
+    const prev = sel.value;
+    sel.innerHTML='';
+    Object.entries(_tiposCache).forEach(([k,v])=>{
+      const o=document.createElement('option'); o.value=k; o.textContent=v; sel.appendChild(o);
+    });
+    if(prev && _tiposCache[prev]) sel.value=prev;
+    loadEnsayoCfgForm();
+  });
+}
+function loadEnsayoCfgForm(){
+  const sel=document.getElementById('cfgTipoSel'); if(!sel||!sel.value) return;
+  const p=_ensayoCfg[sel.value]||{}, df=_ensayoCfgDefaults;
+  _setCfgVal('cfgTriggerKg',  p.trigger_kg,    df.trigger_kg);
+  _setCfgVal('cfgTriggerBar', p.trigger_bar,   df.trigger_bar);
+  _setCfgVal('cfgTrigCount',  p.trigger_count, df.trigger_count);
+  _setCfgVal('cfgDropPct',    p.drop_pct,      df.drop_pct);
+  _setCfgVal('cfgStopCount',  p.stop_count,    df.stop_count);
+  _setCfgVal('cfgStabPct',    p.stab_pct,      df.stab_pct);
+  _setCfgVal('cfgStabSecs',   p.stab_secs,     df.stab_secs);
+  document.getElementById('cfgDropEnabled').checked = (p.drop_enabled!==undefined)?p.drop_enabled:!!df.drop_enabled;
+  document.getElementById('cfgStabEnabled').checked = (p.stab_enabled!==undefined)?p.stab_enabled:!!df.stab_enabled;
+}
+function saveEnsayoCfg(){
+  const sel=document.getElementById('cfgTipoSel'); if(!sel||!sel.value) return;
+  const params={
+    trigger_kg:   parseFloat(document.getElementById('cfgTriggerKg').value),
+    trigger_bar:  parseFloat(document.getElementById('cfgTriggerBar').value),
+    trigger_count:parseInt(document.getElementById('cfgTrigCount').value),
+    drop_enabled: document.getElementById('cfgDropEnabled').checked,
+    drop_pct:     parseFloat(document.getElementById('cfgDropPct').value),
+    stop_count:   parseInt(document.getElementById('cfgStopCount').value),
+    stab_enabled: document.getElementById('cfgStabEnabled').checked,
+    stab_pct:     parseFloat(document.getElementById('cfgStabPct').value),
+    stab_secs:    parseFloat(document.getElementById('cfgStabSecs').value),
+  };
+  Object.keys(params).forEach(k=>{ if(typeof params[k]==='number' && isNaN(params[k])) delete params[k]; });
+  fetch('/api/ensayo/config',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({tipo:sel.value, params})})
+    .then(r=>r.json()).then(d=>{
+      if(d.config){ _ensayoCfg=d.config;
+        const b=document.getElementById('statusBadge');
+        b.className='badge bg-info text-dark';b.textContent='✓ Parámetros guardados';
+        setTimeout(()=>{b.className=connected?'badge bg-success':'badge bg-secondary';b.textContent=connected?'Conectado':'Desconectado';},2500);
+      }
+    });
 }
 
 socket.on('auto_record', e=>{

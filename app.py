@@ -3,7 +3,7 @@ from collections import deque
 from serial.tools import list_ports
 from datetime import datetime
 from functools import wraps
-from flask import Flask, render_template, render_template_string, jsonify, request, redirect, url_for, session, send_file
+from flask import Flask, render_template, render_template_string, jsonify, request, redirect, url_for, session, send_file, abort
 from flask_socketio import SocketIO
 import serial
 import msal
@@ -138,6 +138,10 @@ def _load_ensayo_config():
         except Exception:
             pass
     return {}
+
+def _save_ensayo_config(cfg):
+    with open(ENSAYO_CONFIG_FILE, 'w') as f:
+        json.dump(cfg, f, indent=2, ensure_ascii=False)
 
 def _ensayo_params(cfg):
     """Mergea params de estado: DEFAULT_FILTER/filter_config <- override por tipo."""
@@ -637,6 +641,40 @@ def delete_ensayo_tipo(key):
     del ENSAYO_TIPOS[key]
     _save_ensayo_tipos(ENSAYO_TIPOS)
     return jsonify({'ok': True, 'tipos': ENSAYO_TIPOS})
+
+# Paso 3-UI: parámetros de la máquina de estados por tipo (editables en Config)
+@app.route('/api/ensayo/config', methods=['GET'])
+@login_required
+def get_ensayo_config():
+    # defaults globales para mostrar como fallback en la UI
+    cfg = load_filter()
+    defaults = {k: cfg[k] for k in _ENSAYO_PARAM_KEYS if k in cfg}
+    return jsonify({'config': _load_ensayo_config(), 'defaults': defaults})
+
+@app.route('/api/ensayo/config', methods=['POST'])
+@login_required
+def post_ensayo_config():
+    body = request.json or {}
+    tipo   = (body.get('tipo') or '').strip()
+    params = body.get('params') or {}
+    if not tipo:
+        abort(400, 'tipo requerido')
+    if tipo not in ENSAYO_TIPOS:
+        abort(400, 'tipo no existe')
+    clean = {}
+    for k, v in params.items():
+        if k not in _ENSAYO_PARAM_KEYS:
+            continue
+        if k in ('drop_enabled', 'stab_enabled'):
+            clean[k] = bool(v)
+        elif k in ('trigger_count', 'stop_count'):
+            clean[k] = int(v)
+        else:
+            clean[k] = float(v)
+    full = _load_ensayo_config()
+    full[tipo] = clean
+    _save_ensayo_config(full)
+    return jsonify({'ok': True, 'config': full})
 
 @app.route('/api/record/start', methods=['POST'])
 @login_required
