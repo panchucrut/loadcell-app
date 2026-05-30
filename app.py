@@ -86,6 +86,14 @@ DEFAULT_FILTER = {
     'trigger_kg':         30.0,
     'trigger_count':      8,
     'stop_count':         15,
+    # ── Fase A: máquina de estados del ensayo (provisional aquí; en paso 3
+    #    se migra a ensayo_config.json por tipo) ──────────────────────────
+    'trigger_bar':        20.0,    # presión que también dispara el inicio
+    'drop_enabled':       True,    # fin por caída brusca desde el pico
+    'drop_pct':           30.0,    # % de caída respecto al pico (carga O presión)
+    'stab_enabled':       False,   # fin por estabilización
+    'stab_pct':           2.0,     # variación máx (% del valor de referencia)
+    'stab_secs':          3.0,     # segundos sostenidos estable para terminar
 }
 
 ENSAYO_TIPOS_FILE = os.path.join(BASE, 'ensayo_tipos.json')
@@ -169,6 +177,29 @@ def save_dimension_cal(sc):
 _above_count = 0
 _below_count = 0
 
+# ── Fase A: máquina de estados del ensayo ───────────────────────────────────────
+# IDLE    : no escucha (auto_record off, o detenido)
+# ARMADO  : escuchando triggers, aún no graba
+# GRABANDO: capturando filas en _session_buf
+_ensayo_state   = 'IDLE'
+_peak_total     = 0.0     # pico de carga (kg) durante GRABANDO
+_peak_pressure  = 0.0     # pico de presión (bar) durante GRABANDO
+_stab_ref_total = None    # referencia de carga para detectar estabilización
+_stab_ref_press = None    # referencia de presión para estabilización
+_stab_t0        = None    # timestamp en que empezó la ventana estable
+
+def _reset_ensayo_runtime():
+    """Limpia el estado runtime del ensayo (no toca _ensayo_state)."""
+    global _above_count, _below_count, _peak_total, _peak_pressure
+    global _stab_ref_total, _stab_ref_press, _stab_t0
+    _above_count = 0
+    _below_count = 0
+    _peak_total = 0.0
+    _peak_pressure = 0.0
+    _stab_ref_total = None
+    _stab_ref_press = None
+    _stab_t0 = None
+
 def load_cal():
     global _cal_cache
     if _cal_cache is None:
@@ -245,9 +276,50 @@ def _save_session(buf, meta=None):
     """Delega en core.recorder. Firma conservada para los callers existentes."""
     return _recorder_save(SESSIONS_DIR, buf, meta)
 
+# ── Fase A: helpers de la máquina de estados ────────────────────────────────────
+def _start_grabando(data):
+    """Pasa a GRABANDO: fija tara de tiempo/distancia y resetea picos.
+    Asume _lock tomado por el caller."""
+    global _ensayo_state, _recording, _session_buf
+    global _t_record_start, _dimension_record_offset
+    global _peak_total, _peak_pressure
+    _reset_ensayo_runtime()
+    _session_buf             = []
+    _recording               = True
+    _ensayo_state            = 'GRABANDO'
+    _t_record_start          = data.get('t', 0.0)
+    _dimension_record_offset = data.get(DIMENSION_IDS[0], 0.0) if DIMENSION_IDS else 0.0
+    _peak_total    = sum(data.get(c, 0.0) for c in LOADCELL_IDS)
+    _peak_pressure = data.get(PRESSURE_IDS[0], 0.0) if PRESSURE_IDS else 0.0
+
+def _stop_grabando(reason):
+    """Cierra GRABANDO, guarda la sesión y emite 'ensayo'. Vuelve a ARMADO si
+    auto_record sigue activo, si no a IDLE. NO debe llamarse con _lock tomado
+    (guarda en disco). Devuelve (name, rows)."""
+    global _ensayo_state, _recording
+    with _lock:
+        if not _recording:
+            return None, 0
+        _recording = False
+        buf  = list(_session_buf)
+        meta = dict(_ensayo_meta)
+        _session_buf.clear()
+        _reset_ensayo_runtime()
+        cfg_now = load_filter()
+        _ensayo_state = 'ARMADO' if cfg_now.get('auto_record') else 'IDLE'
+    name = _save_session(buf, meta) if buf else None
+    socketio.emit('ensayo', {
+        'state':  _ensayo_state,
+        'reason': reason,
+        'name':   name,
+        'rows':   len(buf),
+    })
+    return name, len(buf)
+
 # ── serial worker ──────────────────────────────────────────────────────────────
 def _serial_worker():
     global _ser_running, _recording, _session_buf, _above_count, _below_count, _t_record_start, _dimension_record_offset
+    global _ensayo_state, _peak_total, _peak_pressure, _stab_ref_total, _stab_ref_press, _stab_t0
     t0  = time.time()
     ser = None
     _registry.reset_filters()
@@ -280,42 +352,73 @@ def _serial_worker():
                     _last_data.clear()
                     _last_data.update(data)
 
-                if cfg['auto_record']:
-                    total = sum(data[c] for c in LOADCELL_IDS)
-                    thr   = float(cfg['trigger_kg'])
+                # ── Fase A: máquina de estados del ensayo ───────────────────
+                total    = sum(data.get(c, 0.0) for c in LOADCELL_IDS)
+                pressure = data.get(PRESSURE_IDS[0], 0.0) if PRESSURE_IDS else 0.0
+                trig_kg  = float(cfg['trigger_kg'])
+                trig_bar = float(cfg['trigger_bar'])
 
-                    if not _recording:
-                        if total >= thr:
-                            _above_count += 1
-                            _below_count  = 0
-                            if _above_count >= int(cfg['trigger_count']):
-                                with _lock:
-                                    _session_buf          = []
-                                    _recording            = True
-                                    _t_record_start       = data['t']
-                                    _dimension_record_offset = data['dimension']
-                                _above_count = 0
-                                socketio.emit('auto_record', {'state': 'started'})
-                        else:
-                            _above_count = 0
+                # sincronizar ARMADO con el toggle auto_record
+                if cfg['auto_record'] and _ensayo_state == 'IDLE':
+                    _ensayo_state = 'ARMADO'
+                    _reset_ensayo_runtime()
+                    socketio.emit('ensayo', {'state': 'ARMADO', 'reason': 'armado'})
+                elif not cfg['auto_record'] and _ensayo_state == 'ARMADO':
+                    _ensayo_state = 'IDLE'
+                    socketio.emit('ensayo', {'state': 'IDLE', 'reason': 'desarmado'})
+
+                if _ensayo_state == 'ARMADO':
+                    # inicio: carga >= trigger_kg O presión >= trigger_bar, con histéresis
+                    if total >= trig_kg or pressure >= trig_bar:
+                        _above_count += 1
+                        if _above_count >= int(cfg['trigger_count']):
+                            with _lock:
+                                _start_grabando(data)
+                            socketio.emit('ensayo', {'state': 'GRABANDO', 'reason': 'trigger'})
                     else:
-                        if total < thr * 0.4:
+                        _above_count = 0
+
+                elif _ensayo_state == 'GRABANDO':
+                    # actualizar picos
+                    if total > _peak_total:
+                        _peak_total = total
+                    if pressure > _peak_pressure:
+                        _peak_pressure = pressure
+
+                    stop_reason = None
+
+                    # fin por caída brusca desde el pico (carga O presión)
+                    if cfg.get('drop_enabled'):
+                        dp = float(cfg['drop_pct']) / 100.0
+                        load_drop  = _peak_total > trig_kg and total <= _peak_total * (1 - dp)
+                        press_drop = _peak_pressure > 0 and pressure <= _peak_pressure * (1 - dp)
+                        if load_drop or press_drop:
                             _below_count += 1
-                            _above_count  = 0
                             if _below_count >= int(cfg['stop_count']):
-                                _recording = False
-                                with _lock:
-                                    buf = list(_session_buf)
-                                    meta = dict(_ensayo_meta)
-                                _below_count = 0
-                                name = _save_session(buf, meta)
-                                socketio.emit('auto_record', {
-                                    'state': 'stopped',
-                                    'name': name,
-                                    'rows': len(buf)
-                                })
+                                stop_reason = 'caida'
                         else:
                             _below_count = 0
+
+                    # fin por estabilización (carga Y presión planas durante stab_secs)
+                    if stop_reason is None and cfg.get('stab_enabled'):
+                        sp = float(cfg['stab_pct']) / 100.0
+                        if _stab_ref_total is None:
+                            _stab_ref_total = total
+                            _stab_ref_press = pressure
+                            _stab_t0 = data['t']
+                        else:
+                            load_flat  = abs(total - _stab_ref_total) <= abs(_stab_ref_total) * sp
+                            press_flat = abs(pressure - _stab_ref_press) <= abs(_stab_ref_press) * sp
+                            if load_flat and press_flat:
+                                if data['t'] - _stab_t0 >= float(cfg['stab_secs']):
+                                    stop_reason = 'estable'
+                            else:
+                                _stab_ref_total = total
+                                _stab_ref_press = pressure
+                                _stab_t0 = data['t']
+
+                    if stop_reason is not None:
+                        _stop_grabando(stop_reason)
 
                 if _recording and _t_record_start is not None:
                     data['t_rel']      = round(data['t'] - _t_record_start, 2)
@@ -345,6 +448,10 @@ def _serial_worker():
     finally:
         if ser and ser.is_open:
             ser.close()
+        with _lock:
+            _ensayo_state = 'IDLE'
+            _recording = False
+            _reset_ensayo_runtime()
         socketio.emit('status', {'connected': False})
 
 # ── auth routes (F6) ───────────────────────────────────────────────────────────
@@ -505,33 +612,48 @@ def delete_ensayo_tipo(key):
 @app.route('/api/record/start', methods=['POST'])
 @login_required
 def rec_start():
-    global _recording, _session_buf, _t_record_start, _dimension_record_offset
+    """{manual:true} (default) salta directo a GRABANDO ignorando triggers."""
+    global _ensayo_state, _recording, _session_buf, _t_record_start, _dimension_record_offset
     with _lock:
-        # Tara: tomar offset de la última lectura EN VIVO, no del buffer
-        # (en grabado manual el buffer está vacío al iniciar)
+        if _recording:
+            return jsonify({'ok': False, 'msg': 'ya estaba grabando', 'state': _ensayo_state})
+        # Tara desde la última lectura EN VIVO (el buffer está vacío al iniciar)
         live = dict(_last_data)
-        _t_record_start          = live.get('t', 0.0)
-        _dimension_record_offset = live.get('dimension', 0.0)
-        _session_buf             = []
-        _recording               = True
-    return jsonify({'ok': True})
+        _start_grabando(live)
+    socketio.emit('ensayo', {'state': 'GRABANDO', 'reason': 'manual'})
+    return jsonify({'ok': True, 'state': 'GRABANDO'})
 
 @app.route('/api/record/stop', methods=['POST'])
 @login_required
 def rec_stop():
-    global _recording
+    """Aborta si ARMADO (sin guardar); guarda si GRABANDO."""
+    global _ensayo_state
     with _lock:
-        was_recording = _recording
-        _recording = False
-        if not was_recording:
-            return jsonify({'ok': False, 'msg': 'no estaba grabando'})
-        buf  = list(_session_buf)
-        _session_buf.clear()
-        meta = dict(_ensayo_meta)
-    name = _save_session(buf, meta)
-    if not name:
-        return jsonify({'ok': False, 'msg': 'sin datos'})
-    return jsonify({'ok': True, 'name': name, 'rows': len(buf)})
+        state = _ensayo_state
+    if state == 'GRABANDO':
+        name, rows = _stop_grabando('manual')
+        if not name:
+            return jsonify({'ok': False, 'msg': 'sin datos', 'state': _ensayo_state})
+        return jsonify({'ok': True, 'name': name, 'rows': rows, 'state': _ensayo_state})
+    if state == 'ARMADO':
+        with _lock:
+            _ensayo_state = 'IDLE'
+            _reset_ensayo_runtime()
+        socketio.emit('ensayo', {'state': 'IDLE', 'reason': 'abortado'})
+        return jsonify({'ok': True, 'aborted': True, 'state': 'IDLE'})
+    return jsonify({'ok': False, 'msg': 'no estaba grabando ni armado', 'state': state})
+
+@app.route('/api/record/state')
+@login_required
+def rec_state():
+    with _lock:
+        return jsonify({
+            'state':         _ensayo_state,
+            'recording':     _recording,
+            'rows':          len(_session_buf),
+            'peak_total':    round(_peak_total, 2),
+            'peak_pressure': round(_peak_pressure, 2),
+        })
 
 @app.route('/api/sessions')
 @login_required
