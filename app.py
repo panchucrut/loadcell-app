@@ -613,7 +613,7 @@ def auth_me():
 @app.route('/')
 @login_required
 def index():
-    return render_template('index.html')
+    return render_template('index.html', sensors_config=_registry.frontend_config())
 
 @app.route('/api/ports')
 @login_required
