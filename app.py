@@ -670,6 +670,9 @@ def disconnect():
 @app.route('/api/ensayo/meta', methods=['GET'])
 @login_required
 def get_ensayo_meta():
+    # operador automático desde el usuario logueado (o 'Local' en modo local)
+    user = session.get('user') or {}
+    _ensayo_meta['operador'] = user.get('name') or user.get('email') or ('Local' if _LOCAL_MODE else '')
     return jsonify({**_ensayo_meta, 'tipos': ENSAYO_TIPOS})
 
 @app.route('/api/ensayo/meta', methods=['POST'])
@@ -758,6 +761,9 @@ def rec_start():
             return jsonify({'ok': False, 'msg': 'ya estaba grabando', 'state': _ensayo_state})
         if _ensayo_state == 'PENDIENTE_DESCARTE':
             return jsonify({'ok': False, 'msg': 'hay un ensayo pendiente de descartar/guardar', 'state': _ensayo_state})
+        # operador automático desde el usuario logueado
+        _u = session.get('user') or {}
+        _ensayo_meta['operador'] = _u.get('name') or _u.get('email') or ('Local' if _LOCAL_MODE else '')
         # Tara desde la última lectura EN VIVO (el buffer está vacío al iniciar)
         live = dict(_last_data)
         _start_grabando(live)

@@ -94,6 +94,7 @@
             <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
               <div class="d-flex gap-2 align-items-center">
                 <button id="pauseBtn" class="btn btn-sm btn-outline-warning" onclick="togglePause()">⏸ Pausar</button>
+                <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#ensayoModal">📷 Foto</button>
                 <button id="recBtn"   class="btn btn-sm btn-outline-danger"  onclick="toggleRecord()">⏺ Grabar</button>
                 <span id="recBadge" class="badge bg-danger pulsing d-none">● REC</span>
               </div>
@@ -509,48 +510,14 @@
   <div class="modal-dialog modal-dialog-centered">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title">🗂 Configurar ensayo</h5>
+        <h5 class="modal-title">📷 Foto de la muestra</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
 
-        <div class="mb-3">
-          <label class="form-label fw-semibold mb-1" style="font-size:0.82rem">Tipo de ensayo</label>
-          <select class="form-select form-select-sm" id="ensayoTipo">
-            <!-- populated dynamically by loadTipos() -->
-          </select>
-        </div>
-
-        <div class="mb-3">
-          <label class="form-label text-muted mb-1" style="font-size:0.75rem">Material / muestra</label>
-          <input type="text" class="form-control form-control-sm" id="ensayoMaterial" placeholder="ej. hormigón H30">
-        </div>
-
-        <div class="mb-3">
-          <label class="form-label text-muted mb-1" style="font-size:0.75rem">Dimensiones</label>
-          <input type="text" class="form-control form-control-sm" id="ensayoDimensiones" placeholder="ej. 150×150×150 mm">
-        </div>
-
-        <div class="mb-3">
-          <label class="form-label text-muted mb-1" style="font-size:0.75rem">Operador</label>
-          <input type="text" class="form-control form-control-sm" id="ensayoOperador" placeholder="Nombre">
-        </div>
-
-        <div class="mb-3">
-          <label class="form-label text-muted mb-1" style="font-size:0.75rem">Notas</label>
-          <textarea class="form-control form-control-sm" id="ensayoNotas" rows="2" placeholder="Observaciones..."></textarea>
-        </div>
-
-        <div class="mb-2">
-          <label class="form-label text-muted mb-1" style="font-size:0.75rem">Título del archivo <span class="text-muted">(auto-generado, editable)</span></label>
-          <input type="text" class="form-control form-control-sm" id="ensayoTitulo" placeholder="Se genera al guardar">
-          <div class="text-muted mt-1" style="font-size:0.68rem">Vacío = {tipo}_{timestamp}</div>
-        </div>
-
         <!-- T8: foto — QR celular + fallback local -->
-        <hr class="my-3">
         <div class="mb-1">
-          <label class="form-label text-muted mb-2" style="font-size:0.75rem">📷 Foto de la muestra (opcional)</label>
+          <label class="form-label text-muted mb-2" style="font-size:0.75rem">Adjunta una foto de la muestra (opcional). Se guarda junto al ensayo al detener la grabación.</label>
 
           <!-- QR panel -->
           <div id="qrPanel" class="text-center mb-2">
@@ -568,13 +535,12 @@
           <!-- fallback local -->
           <div class="text-muted text-center mb-1" style="font-size:0.72rem">— o subir desde este dispositivo —</div>
           <input type="file" class="form-control form-control-sm" id="ensayoFoto" accept="image/*" capture="environment">
-          <div class="text-muted mt-1" style="font-size:0.68rem">JPG o HEIC desde cámara o galería. Se guarda junto al ensayo al detener la grabación.</div>
+          <div class="text-muted mt-1" style="font-size:0.68rem">JPG o HEIC desde cámara o galería.</div>
         </div>
 
       </div>
       <div class="modal-footer">
-        <button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
-        <button class="btn btn-primary btn-sm" onclick="saveEnsayoMeta()">Confirmar</button>
+        <button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cerrar</button>
       </div>
     </div>
   </div>
@@ -1109,16 +1075,6 @@ let _tiposCache = {};
 function loadTipos(callback){
   fetch('/api/ensayo/tipos').then(r=>r.json()).then(tipos=>{
     _tiposCache = tipos;
-    // update modal dropdown
-    const sel = document.getElementById('ensayoTipo');
-    const cur = sel.value;
-    sel.innerHTML = '';
-    Object.entries(tipos).forEach(([k,v])=>{
-      const o = document.createElement('option');
-      o.value = k; o.textContent = v;
-      sel.appendChild(o);
-    });
-    if(cur && tipos[cur]) sel.value = cur;
     // Fase C: poblar selector de Monitor
     const mSel = document.getElementById('monitorTipoSel');
     if(mSel){
@@ -1164,11 +1120,9 @@ function addTipo(){
       if(d.tipos){
         _tiposCache = d.tipos;
         renderTiposList(d.tipos);
-        // update modal dropdown
-        const sel = document.getElementById('ensayoTipo');
-        const opt = document.createElement('option');
-        opt.value = key; opt.textContent = label;
-        sel.appendChild(opt);
+        // añadir al selector de Monitor
+        const sel = document.getElementById('monitorTipoSel');
+        if(sel){ const opt=document.createElement('option'); opt.value=key; opt.textContent=label; sel.appendChild(opt); }
         document.getElementById('inpTipoKey').value = '';
         document.getElementById('inpTipoLabel').value = '';
       }
@@ -1180,9 +1134,9 @@ function deleteTipo(key){
   fetch(`/api/ensayo/tipos/${encodeURIComponent(key)}`,{method:'DELETE'})
     .then(r=>r.json()).then(d=>{
       if(d.tipos){ _tiposCache = d.tipos; renderTiposList(d.tipos);
-        // remove from modal dropdown
-        const sel = document.getElementById('ensayoTipo');
-        const opt = sel.querySelector(`option[value="${key}"]`);
+        // quitar del selector de Monitor
+        const sel = document.getElementById('monitorTipoSel');
+        const opt = sel && sel.querySelector(`option[value="${key}"]`);
         if(opt) opt.remove();
       }
     });
@@ -1192,35 +1146,11 @@ function loadEnsayoMeta(){
   fetch('/api/ensayo/meta').then(r=>r.json()).then(m=>{
     _currentMeta = m;
     loadTipos(()=>{
-      if(m.tipo && document.getElementById('ensayoTipo').querySelector(`option[value="${m.tipo}"]`))
-        document.getElementById('ensayoTipo').value = m.tipo;
+      const mSel=document.getElementById('monitorTipoSel');
+      if(mSel && m.tipo && mSel.querySelector(`option[value="${m.tipo}"]`)) mSel.value=m.tipo;
     });
-    document.getElementById('ensayoMaterial').value  = m.material||'';
-    document.getElementById('ensayoDimensiones').value = m.dimensiones||'';
-    document.getElementById('ensayoOperador').value  = m.operador||'';
-    document.getElementById('ensayoNotas').value     = m.notas||'';
-    document.getElementById('ensayoTitulo').value    = m.titulo||'';
     updateEnsayoChip(m);
   });
-}
-
-function saveEnsayoMeta(){
-  const meta = {
-    tipo:        document.getElementById('ensayoTipo').value,
-    material:    document.getElementById('ensayoMaterial').value,
-    dimensiones: document.getElementById('ensayoDimensiones').value,
-    operador:    document.getElementById('ensayoOperador').value,
-    notas:       document.getElementById('ensayoNotas').value,
-    titulo:      document.getElementById('ensayoTitulo').value,
-  };
-  fetch('/api/ensayo/meta',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(meta)})
-    .then(r=>r.json()).then(d=>{
-      if(d.ok){
-        _currentMeta = meta;
-        updateEnsayoChip(meta);
-        bootstrap.Modal.getInstance(document.getElementById('ensayoModal')).hide();
-      }
-    });
 }
 
 function updateEnsayoChip(meta){
@@ -1257,8 +1187,6 @@ function setTipoFromMonitor(tipo){
     .then(r=>r.json()).then(d=>{
       if(d.ok){
         _currentMeta = {..._currentMeta, ...d.meta};
-        const modalSel=document.getElementById('ensayoTipo');
-        if(modalSel && modalSel.querySelector(`option[value="${tipo}"]`)) modalSel.value=tipo;
         updateEnsayoChip(_currentMeta);
       }
     });
