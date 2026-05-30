@@ -1,0 +1,28 @@
+{
+  "comp_cubo": {
+    "trigger_kg": 30.0,
+    "drop_enabled": true,
+    "drop_pct": 30.0,
+    "stab_enabled": false
+  },
+  "comp_piso": {
+    "trigger_kg": 30.0,
+    "drop_enabled": true,
+    "drop_pct": 30.0,
+    "stab_enabled": false
+  },
+  "def_esquina": {
+    "trigger_bar": 20.0,
+    "drop_enabled": false,
+    "stab_enabled": true,
+    "stab_pct": 2.0,
+    "stab_secs": 3.0
+  },
+  "def_total": {
+    "trigger_bar": 20.0,
+    "drop_enabled": false,
+    "stab_enabled": true,
+    "stab_pct": 2.0,
+    "stab_secs": 3.0
+  }
+}

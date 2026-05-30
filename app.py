@@ -119,6 +119,34 @@ def _save_ensayo_tipos(tipos):
 
 ENSAYO_TIPOS = _load_ensayo_tipos()
 
+# ── Paso 3: parámetros de la máquina de estados por tipo de ensayo ──────────
+# Cada tipo puede sobrescribir su hito de inicio y condición de término.
+# Claves válidas: trigger_kg, trigger_bar, trigger_count, drop_enabled,
+# drop_pct, stab_enabled, stab_pct, stab_secs, stop_count.
+# Fallback: si el tipo o una clave falta, se usa DEFAULT_FILTER/filter_config.
+ENSAYO_CONFIG_FILE = os.path.join(BASE, 'ensayo_config.json')
+_ENSAYO_PARAM_KEYS = (
+    'trigger_kg', 'trigger_bar', 'trigger_count', 'stop_count',
+    'drop_enabled', 'drop_pct', 'stab_enabled', 'stab_pct', 'stab_secs',
+)
+
+def _load_ensayo_config():
+    if os.path.exists(ENSAYO_CONFIG_FILE):
+        try:
+            with open(ENSAYO_CONFIG_FILE) as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {}
+
+def _ensayo_params(cfg):
+    """Mergea params de estado: DEFAULT_FILTER/filter_config <- override por tipo."""
+    base = {k: cfg[k] for k in _ENSAYO_PARAM_KEYS if k in cfg}
+    tipo = _ensayo_meta.get('tipo')
+    over = _load_ensayo_config().get(tipo, {})
+    base.update({k: v for k, v in over.items() if k in _ENSAYO_PARAM_KEYS})
+    return base
+
 # ── state ──────────────────────────────────────────────────────────────────────
 _lock                 = threading.Lock()
 _ser_running          = False
@@ -355,8 +383,9 @@ def _serial_worker():
                 # ── Fase A: máquina de estados del ensayo ───────────────────
                 total    = sum(data.get(c, 0.0) for c in LOADCELL_IDS)
                 pressure = data.get(PRESSURE_IDS[0], 0.0) if PRESSURE_IDS else 0.0
-                trig_kg  = float(cfg['trigger_kg'])
-                trig_bar = float(cfg['trigger_bar'])
+                ep       = _ensayo_params(cfg)   # params de estado según _ensayo_meta['tipo']
+                trig_kg  = float(ep['trigger_kg'])
+                trig_bar = float(ep['trigger_bar'])
 
                 # sincronizar ARMADO con el toggle auto_record
                 if cfg['auto_record'] and _ensayo_state == 'IDLE':
@@ -371,7 +400,7 @@ def _serial_worker():
                     # inicio: carga >= trigger_kg O presión >= trigger_bar, con histéresis
                     if total >= trig_kg or pressure >= trig_bar:
                         _above_count += 1
-                        if _above_count >= int(cfg['trigger_count']):
+                        if _above_count >= int(ep['trigger_count']):
                             with _lock:
                                 _start_grabando(data)
                             socketio.emit('ensayo', {'state': 'GRABANDO', 'reason': 'trigger'})
@@ -388,20 +417,20 @@ def _serial_worker():
                     stop_reason = None
 
                     # fin por caída brusca desde el pico (carga O presión)
-                    if cfg.get('drop_enabled'):
-                        dp = float(cfg['drop_pct']) / 100.0
+                    if ep.get('drop_enabled'):
+                        dp = float(ep['drop_pct']) / 100.0
                         load_drop  = _peak_total > trig_kg and total <= _peak_total * (1 - dp)
                         press_drop = _peak_pressure > 0 and pressure <= _peak_pressure * (1 - dp)
                         if load_drop or press_drop:
                             _below_count += 1
-                            if _below_count >= int(cfg['stop_count']):
+                            if _below_count >= int(ep['stop_count']):
                                 stop_reason = 'caida'
                         else:
                             _below_count = 0
 
                     # fin por estabilización (carga Y presión planas durante stab_secs)
-                    if stop_reason is None and cfg.get('stab_enabled'):
-                        sp = float(cfg['stab_pct']) / 100.0
+                    if stop_reason is None and ep.get('stab_enabled'):
+                        sp = float(ep['stab_pct']) / 100.0
                         if _stab_ref_total is None:
                             _stab_ref_total = total
                             _stab_ref_press = pressure
@@ -410,7 +439,7 @@ def _serial_worker():
                             load_flat  = abs(total - _stab_ref_total) <= abs(_stab_ref_total) * sp
                             press_flat = abs(pressure - _stab_ref_press) <= abs(_stab_ref_press) * sp
                             if load_flat and press_flat:
-                                if data['t'] - _stab_t0 >= float(cfg['stab_secs']):
+                                if data['t'] - _stab_t0 >= float(ep['stab_secs']):
                                     stop_reason = 'estable'
                             else:
                                 _stab_ref_total = total
