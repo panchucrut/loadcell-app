@@ -210,10 +210,16 @@ _above_count = 0
 _below_count = 0
 
 # ── Fase A: máquina de estados del ensayo ───────────────────────────────────────
-# IDLE    : no escucha (auto_record off, o detenido)
-# ARMADO  : escuchando triggers, aún no graba
-# GRABANDO: capturando filas en _session_buf
+# IDLE              : no escucha (auto_record off, o detenido)
+# ARMADO            : escuchando triggers, aún no graba
+# GRABANDO          : capturando filas en _session_buf
+# PENDIENTE_DESCARTE: ensayo terminado; ventana de gracia para descartar antes de autoguardar
 _ensayo_state   = 'IDLE'
+DISCARD_WINDOW_SEC = 10.0  # Fase B: ventana de gracia antes de autoguardar
+_pending_buf    = None     # buffer del ensayo terminado, a la espera de descartar/guardar
+_pending_meta   = None     # meta congelada del ensayo pendiente
+_pending_reason = None     # motivo de término del ensayo pendiente
+_discard_timer  = None     # threading.Timer que autoguarda al expirar la ventana
 _peak_total     = 0.0     # pico de carga (kg) durante GRABANDO
 _peak_pressure  = 0.0     # pico de presión (bar) durante GRABANDO
 _stab_ref_total = None    # referencia de carga para detectar estabilización
@@ -325,28 +331,93 @@ def _start_grabando(data):
     _peak_pressure = data.get(PRESSURE_IDS[0], 0.0) if PRESSURE_IDS else 0.0
 
 def _stop_grabando(reason):
-    """Cierra GRABANDO, guarda la sesión y emite 'ensayo'. Vuelve a ARMADO si
-    auto_record sigue activo, si no a IDLE. NO debe llamarse con _lock tomado
-    (guarda en disco). Devuelve (name, rows)."""
-    global _ensayo_state, _recording
+    """Cierra GRABANDO y pasa a PENDIENTE_DESCARTE: retiene el buffer y arma una
+    ventana de gracia de DISCARD_WINDOW_SEC antes de autoguardar. NO guarda en
+    disco aquí. Si el ensayo quedó vacío, va directo a ARMADO/IDLE sin pendiente.
+    Devuelve (state, rows). Asume _lock NO tomado por el caller."""
+    global _ensayo_state, _recording, _pending_buf, _pending_meta, _pending_reason
     with _lock:
         if not _recording:
-            return None, 0
+            return _ensayo_state, 0
         _recording = False
         buf  = list(_session_buf)
         meta = dict(_ensayo_meta)
         _session_buf.clear()
         _reset_ensayo_runtime()
+        if not buf:
+            cfg_now = load_filter()
+            _ensayo_state = 'ARMADO' if cfg_now.get('auto_record') else 'IDLE'
+            _pending_buf = _pending_meta = _pending_reason = None
+            socketio.emit('ensayo', {'state': _ensayo_state, 'reason': reason, 'rows': 0})
+            return _ensayo_state, 0
+        _pending_buf    = buf
+        _pending_meta   = meta
+        _pending_reason = reason
+        _ensayo_state   = 'PENDIENTE_DESCARTE'
+    _arm_discard_timer()
+    socketio.emit('ensayo', {
+        'state':  'PENDIENTE_DESCARTE',
+        'reason': reason,
+        'rows':   len(buf),
+        'window': DISCARD_WINDOW_SEC,
+    })
+    return 'PENDIENTE_DESCARTE', len(buf)
+
+def _arm_discard_timer():
+    """(Re)arma el timer que autoguarda el ensayo pendiente al expirar la ventana."""
+    global _discard_timer
+    with _lock:
+        if _discard_timer is not None:
+            _discard_timer.cancel()
+        _discard_timer = threading.Timer(DISCARD_WINDOW_SEC, _finalize_pending, ['timeout'])
+        _discard_timer.daemon = True
+        _discard_timer.start()
+
+def _finalize_pending(reason='manual'):
+    """Guarda el ensayo pendiente en disco y vuelve a ARMADO/IDLE. Idempotente:
+    si no hay pendiente, no hace nada. NO asume _lock tomado."""
+    global _ensayo_state, _pending_buf, _pending_meta, _pending_reason, _discard_timer
+    with _lock:
+        if _discard_timer is not None:
+            _discard_timer.cancel()
+            _discard_timer = None
+        if _pending_buf is None:
+            return None, 0
+        buf  = _pending_buf
+        meta = _pending_meta
+        _pending_buf = _pending_meta = _pending_reason = None
         cfg_now = load_filter()
         _ensayo_state = 'ARMADO' if cfg_now.get('auto_record') else 'IDLE'
     name = _save_session(buf, meta) if buf else None
     socketio.emit('ensayo', {
         'state':  _ensayo_state,
-        'reason': reason,
+        'reason': 'guardado',
+        'how':    reason,
         'name':   name,
         'rows':   len(buf),
     })
     return name, len(buf)
+
+def _discard_pending():
+    """Descarta el ensayo pendiente sin guardarlo. Vuelve a ARMADO/IDLE.
+    Idempotente. NO asume _lock tomado."""
+    global _ensayo_state, _pending_buf, _pending_meta, _pending_reason, _discard_timer
+    with _lock:
+        if _discard_timer is not None:
+            _discard_timer.cancel()
+            _discard_timer = None
+        if _pending_buf is None:
+            return False
+        rows = len(_pending_buf)
+        _pending_buf = _pending_meta = _pending_reason = None
+        cfg_now = load_filter()
+        _ensayo_state = 'ARMADO' if cfg_now.get('auto_record') else 'IDLE'
+    socketio.emit('ensayo', {
+        'state':  _ensayo_state,
+        'reason': 'descartado',
+        'rows':   rows,
+    })
+    return True
 
 # ── serial worker ──────────────────────────────────────────────────────────────
 def _serial_worker():
@@ -481,6 +552,7 @@ def _serial_worker():
     finally:
         if ser and ser.is_open:
             ser.close()
+        _discard_pending()
         with _lock:
             _ensayo_state = 'IDLE'
             _recording = False
@@ -684,6 +756,8 @@ def rec_start():
     with _lock:
         if _recording:
             return jsonify({'ok': False, 'msg': 'ya estaba grabando', 'state': _ensayo_state})
+        if _ensayo_state == 'PENDIENTE_DESCARTE':
+            return jsonify({'ok': False, 'msg': 'hay un ensayo pendiente de descartar/guardar', 'state': _ensayo_state})
         # Tara desde la última lectura EN VIVO (el buffer está vacío al iniciar)
         live = dict(_last_data)
         _start_grabando(live)
@@ -693,15 +767,15 @@ def rec_start():
 @app.route('/api/record/stop', methods=['POST'])
 @login_required
 def rec_stop():
-    """Aborta si ARMADO (sin guardar); guarda si GRABANDO."""
+    """Aborta si ARMADO (sin guardar); pasa a PENDIENTE_DESCARTE si GRABANDO."""
     global _ensayo_state
     with _lock:
         state = _ensayo_state
     if state == 'GRABANDO':
-        name, rows = _stop_grabando('manual')
-        if not name:
+        new_state, rows = _stop_grabando('manual')
+        if not rows:
             return jsonify({'ok': False, 'msg': 'sin datos', 'state': _ensayo_state})
-        return jsonify({'ok': True, 'name': name, 'rows': rows, 'state': _ensayo_state})
+        return jsonify({'ok': True, 'rows': rows, 'state': new_state, 'window': DISCARD_WINDOW_SEC})
     if state == 'ARMADO':
         with _lock:
             _ensayo_state = 'IDLE'
@@ -709,6 +783,31 @@ def rec_stop():
         socketio.emit('ensayo', {'state': 'IDLE', 'reason': 'abortado'})
         return jsonify({'ok': True, 'aborted': True, 'state': 'IDLE'})
     return jsonify({'ok': False, 'msg': 'no estaba grabando ni armado', 'state': state})
+
+@app.route('/api/record/discard', methods=['POST'])
+@login_required
+def rec_discard():
+    """Descarta el ensayo pendiente (PENDIENTE_DESCARTE) sin guardarlo."""
+    with _lock:
+        state = _ensayo_state
+    if state != 'PENDIENTE_DESCARTE':
+        return jsonify({'ok': False, 'msg': 'no hay ensayo pendiente', 'state': state})
+    if _discard_pending():
+        return jsonify({'ok': True, 'discarded': True, 'state': _ensayo_state})
+    return jsonify({'ok': False, 'msg': 'nada que descartar', 'state': _ensayo_state})
+
+@app.route('/api/record/keep', methods=['POST'])
+@login_required
+def rec_keep():
+    """Guarda ya el ensayo pendiente sin esperar a que expire la ventana."""
+    with _lock:
+        state = _ensayo_state
+    if state != 'PENDIENTE_DESCARTE':
+        return jsonify({'ok': False, 'msg': 'no hay ensayo pendiente', 'state': state})
+    name, rows = _finalize_pending('manual')
+    if not name:
+        return jsonify({'ok': False, 'msg': 'nada que guardar', 'state': _ensayo_state})
+    return jsonify({'ok': True, 'name': name, 'rows': rows, 'state': _ensayo_state})
 
 @app.route('/api/record/state')
 @login_required
@@ -720,6 +819,9 @@ def rec_state():
             'rows':          len(_session_buf),
             'peak_total':    round(_peak_total, 2),
             'peak_pressure': round(_peak_pressure, 2),
+            'pending':       _pending_buf is not None,
+            'pending_rows':  len(_pending_buf) if _pending_buf is not None else 0,
+            'window':        DISCARD_WINDOW_SEC,
         })
 
 @app.route('/api/sessions')

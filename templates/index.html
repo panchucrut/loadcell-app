@@ -118,6 +118,17 @@
               <span id="ensayoChipTipo" class="tipo-badge"></span>
               <span id="ensayoChipTitulo" class="text-muted ms-1" style="font-size:0.75rem"></span>
             </div>
+            <!-- Fase B: banner de descarte con ventana de gracia -->
+            <div id="discardBanner" class="alert alert-warning d-none d-flex align-items-center justify-content-between py-2 px-3 mb-2">
+              <span style="font-size:0.85rem">
+                Ensayo terminado (<span id="discardRows">0</span> reg). Se guardará en
+                <span id="discardCount" class="fw-bold">10</span> s…
+              </span>
+              <span class="d-flex gap-2">
+                <button class="btn btn-sm btn-outline-danger" onclick="discardPending()">🗑 Descartar</button>
+                <button class="btn btn-sm btn-success" onclick="keepPending()">💾 Guardar ya</button>
+              </span>
+            </div>
             <!-- Chart 1: Carga vs Tiempo -->
             <div class="fw-semibold text-muted mb-1" style="font-size:0.75rem">Carga vs Tiempo</div>
             <div style="height:220px;position:relative"><canvas id="chartCarga"></canvas></div>
@@ -1034,19 +1045,47 @@ function toggleRecord(){
     if(_stopping) return;
     _stopping = true;
     btn.disabled = true;
-    btn.textContent = '⏳ Guardando…';
+    btn.textContent = '⏳ …';
     fetch('/api/record/stop',{method:'POST'}).then(r=>r.json()).then(d=>{
       recording=false; _stopping = false; btn.disabled = false;
       btn.textContent='⏺ Grabar';
       document.getElementById('recBadge').classList.add('d-none');
-      if(d.ok){
-        _pendingFotoName = d.name;
-        uploadPendingFoto(d.name);
-        alert(`✅ Sesión guardada\n${d.name}\n${d.rows} registros`);
-        loadSessions();
-      } else alert('⚠ Sin datos para guardar.');
+      // El guardado real ocurre tras la ventana de descarte; el banner lo dispara socket 'ensayo'.
+      if(!d.ok && d.msg) alert('⚠ '+d.msg);
     }).catch(()=>{ _stopping = false; btn.disabled = false; btn.textContent='⏹ Detener'; });
   }
+}
+
+// ── Fase B: descarte / guardado del ensayo pendiente ───────────────────────────
+let _discardInterval = null;
+function _showDiscardBanner(rows, windowSec){
+  const banner = document.getElementById('discardBanner');
+  document.getElementById('discardRows').textContent = rows;
+  let left = Math.round(windowSec || 10);
+  document.getElementById('discardCount').textContent = left;
+  banner.classList.remove('d-none');
+  if(_discardInterval) clearInterval(_discardInterval);
+  _discardInterval = setInterval(()=>{
+    left -= 1;
+    document.getElementById('discardCount').textContent = Math.max(left, 0);
+    if(left <= 0){ clearInterval(_discardInterval); _discardInterval = null; }
+  }, 1000);
+}
+function _hideDiscardBanner(){
+  if(_discardInterval){ clearInterval(_discardInterval); _discardInterval = null; }
+  document.getElementById('discardBanner').classList.add('d-none');
+}
+function discardPending(){
+  fetch('/api/record/discard',{method:'POST'}).then(r=>r.json()).then(d=>{
+    _hideDiscardBanner();
+    if(!d.ok && d.msg) alert('⚠ '+d.msg);
+  });
+}
+function keepPending(){
+  fetch('/api/record/keep',{method:'POST'}).then(r=>r.json()).then(d=>{
+    _hideDiscardBanner();
+    if(!d.ok && d.msg) alert('⚠ '+d.msg);
+  });
 }
 
 // ── F2: ensayo metadata ───────────────────────────────────────────────────────
@@ -1458,20 +1497,38 @@ function saveEnsayoCfg(){
     });
 }
 
-socket.on('auto_record', e=>{
-  if(e.state==='started'){
-    recording=true;clearChart();document.getElementById('recBtn').textContent='⏹ Detener';
-    document.getElementById('recBadge').classList.remove('d-none');
-  } else {
-    recording=false;document.getElementById('recBtn').textContent='⏺ Grabar';
-    document.getElementById('recBadge').classList.add('d-none');
-    if(e.name){
-      uploadPendingFoto(e.name);
-      loadSessions();
-    }
-    const b=document.getElementById('statusBadge');
-    b.className='badge bg-info text-dark';b.textContent=`✓ Guardado (${e.rows} reg)`;
-    setTimeout(()=>{b.className=connected?'badge bg-success':'badge bg-secondary';b.textContent=connected?'Conectado':'Desconectado';},3000);
+// Fase B: handler unificado de la máquina de estados del ensayo
+socket.on('ensayo', e=>{
+  const recBtn = document.getElementById('recBtn');
+  const recBadge = document.getElementById('recBadge');
+  const statusB = document.getElementById('statusBadge');
+  const restoreBadge = (msg)=>{
+    if(msg){ statusB.className='badge bg-info text-dark'; statusB.textContent=msg;
+      setTimeout(()=>{statusB.className=connected?'badge bg-success':'badge bg-secondary';
+        statusB.textContent=connected?'Conectado':'Desconectado';},3000); }
+  };
+  switch(e.state){
+    case 'GRABANDO':
+      recording=true; if(e.reason!=='manual') clearChart();
+      recBtn.textContent='⏹ Detener'; recBadge.classList.remove('d-none');
+      _hideDiscardBanner();
+      break;
+    case 'PENDIENTE_DESCARTE':
+      recording=false; recBtn.textContent='⏺ Grabar'; recBadge.classList.add('d-none');
+      _pendingFotoName = null;
+      _showDiscardBanner(e.rows||0, e.window);
+      break;
+    case 'ARMADO':
+    case 'IDLE':
+      recording=false; recBtn.textContent='⏺ Grabar'; recBadge.classList.add('d-none');
+      _hideDiscardBanner();
+      if(e.reason==='guardado'){
+        if(e.name){ _pendingFotoName=e.name; uploadPendingFoto(e.name); loadSessions(); }
+        restoreBadge(`✓ Guardado (${e.rows||0} reg)`);
+      } else if(e.reason==='descartado'){
+        restoreBadge('🗑 Ensayo descartado');
+      }
+      break;
   }
 });
 
