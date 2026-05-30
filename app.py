@@ -8,6 +8,8 @@ from flask_socketio import SocketIO
 import serial
 import msal
 from dotenv import load_dotenv
+from core.registry import load_registry
+from core.recorder import save_session as _recorder_save
 try:
     import markdown as _md
     _HAS_MD = True
@@ -129,7 +131,6 @@ _ensayo_meta = {
     'titulo':      '',
 }
 
-_med_bufs = {f'celda_{i}': deque() for i in range(1, 10)}
 _zero_bufs = {f'celda_{i}': deque(maxlen=30) for i in range(1, 10)}  # raw crudo p/ tara promediada
 _pressure_buf = deque(maxlen=60)  # buffer para zero de presión
 _last_raw = {}
@@ -208,75 +209,48 @@ def _raw_dimension(raw):
     """
     return float(raw.get('dimension', raw.get('stroke', raw.get('stroke_rel', 0))))
 
+# ── registry declarativo (lee config/sensors.json) ──────────────────────────────
+_registry = load_registry()
+LOADCELL_IDS = _registry.by_type('loadcell')   # ['celda_1'..'celda_9']
+PRESSURE_IDS = _registry.by_type('pressure')
+DIMENSION_IDS = _registry.by_type('dimension')
+
+def _build_cal_params(cal, cfg):
+    """Arma {sensor_id: params} que el registry necesita, desde los JSON existentes."""
+    params = dict(cal)  # celdas: offset/scale
+    dim_cal = load_dimension_cal()
+    for did in DIMENSION_IDS:
+        params[did] = dim_cal
+    for pid in PRESSURE_IDS:
+        params[pid] = {'offset': float(cfg.get('pressure_offset', 0.0))}
+    return params
+
 def apply_cal(raw, cal, cfg=None):
+    """Compat: devuelve dict calibrado SIN filtrar (igual contrato que antes,
+    pero ahora delega en el registry). El filtrado va aparte en apply_filter."""
     if cfg is None:
         cfg = load_filter()
-    out = {}
-    for i in range(1, 10):
-        k = f'celda_{i}'
-        out[k] = round((float(raw.get(k, 0)) - cal[k]['offset']) / cal[k]['scale'], 2)
-    sc = load_dimension_cal()
-    raw_s = _raw_dimension(raw)   # único punto que conoce el naming del Arduino
-    span = sc['raw_max'] - sc['raw_min']
-    out['dimension'] = round((raw_s - sc['raw_min']) / span * (sc['mm_max'] - sc['mm_min']) + sc['mm_min'], 2) if span != 0 else round(raw_s, 2)
-    out['pressure'] = round((float(raw.get('pressure', 0)) - float(cfg.get('pressure_offset', 0.0))), 2)
-    return out
+    params = _build_cal_params(cal, cfg)
+    # registry.process aplica cal+filtro juntos; para mantener separación
+    # de las dos llamadas del worker, exponemos el processed completo aquí
+    # y apply_filter pasa a ser passthrough (ver abajo).
+    return _registry.process(raw, params, cfg)
 
 def apply_filter(data, cfg):
-    w = max(1, int(cfg['median_window']))
-    floor = float(cfg['noise_floor'])
-    out = dict(data)
-    for i in range(1, 10):
-        k = f'celda_{i}'
-        buf = _med_bufs[k]
-        buf.append(data[k])
-        if len(buf) > w:
-            buf.popleft()
-        val = statistics.median(buf)
-        out[k] = round(val if abs(val) >= floor else 0.0, 2)
-    return out
+    """El filtrado ya ocurrió dentro del registry.process (cal+filtro juntos).
+    Se mantiene como passthrough para no alterar el flujo del worker."""
+    return data
 
 def _save_session(buf, meta=None):
-    """Save buffer to CSV + XLSX + meta.json, return session name."""
-    if not buf:
-        return None
-    ts   = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
-    tipo = (meta or {}).get('tipo', 'sesion')
-    name = f'{tipo}_{ts}'
-    keys = list(buf[0].keys())
-    csv_path = os.path.join(SESSIONS_DIR, name + '.csv')
-    with open(csv_path, 'w', newline='') as f:
-        w = csv.DictWriter(f, fieldnames=keys)
-        w.writeheader()
-        w.writerows(buf)
-    try:
-        import openpyxl
-        wb = openpyxl.Workbook()
-        ws = wb.active
-        ws.append(keys)
-        for row in buf:
-            ws.append([row[k] for k in keys])
-        wb.save(os.path.join(SESSIONS_DIR, name + '.xlsx'))
-    except Exception:
-        pass
-    # F2.3: save meta.json
-    if meta:
-        meta_out = dict(meta)
-        meta_out['timestamp'] = ts
-        meta_out['rows'] = len(buf)
-        meta_out['nombre_archivo'] = name
-        meta_out.setdefault('starred', False)
-        with open(os.path.join(SESSIONS_DIR, name + '_meta.json'), 'w') as f:
-            json.dump(meta_out, f, indent=2, ensure_ascii=False)
-    return name
+    """Delega en core.recorder. Firma conservada para los callers existentes."""
+    return _recorder_save(SESSIONS_DIR, buf, meta)
 
 # ── serial worker ──────────────────────────────────────────────────────────────
 def _serial_worker():
     global _ser_running, _recording, _session_buf, _above_count, _below_count, _t_record_start, _dimension_record_offset
     t0  = time.time()
     ser = None
-    for buf in _med_bufs.values():
-        buf.clear()
+    _registry.reset_filters()
     try:
         ser = serial.Serial(_serial_cfg['port'], _serial_cfg['baud'], timeout=5)
         time.sleep(2)
@@ -307,7 +281,7 @@ def _serial_worker():
                     _last_data.update(data)
 
                 if cfg['auto_record']:
-                    total = sum(data[f'celda_{i}'] for i in range(1, 10))
+                    total = sum(data[c] for c in LOADCELL_IDS)
                     thr   = float(cfg['trigger_kg'])
 
                     if not _recording:
@@ -355,9 +329,9 @@ def _serial_worker():
                     with _lock:
                         rec = {}
                         # celdas
-                        for i in range(1, 10):
-                            rec[f'celda_{i}'] = data[f'celda_{i}']
-                        rec['total_kg']  = round(sum(data[f'celda_{i}'] for i in range(1, 10)), 2)
+                        for c in LOADCELL_IDS:
+                            rec[c] = data[c]
+                        rec['total_kg']  = round(sum(data[c] for c in LOADCELL_IDS), 2)
                         rec['dimension'] = data['dimension_rel']
                         rec['pressure']  = data['pressure']
                         rec['t']         = data['t_rel']
@@ -823,6 +797,13 @@ def calibrate_pressure_zero():
                     'msg': f'Zero presión: {avg:.2f} bar (promedio {n} lecturas)'})
 
 
+@app.route('/api/sensors')
+@login_required
+def get_sensors():
+    """Config declarativa para que el frontend arme gráficos/tabs/ejes."""
+    return jsonify(_registry.frontend_config())
+
+@app.route('/api/calibrate/dimension', methods=['POST'])
 @login_required
 def calibrate_dimension():
     with _lock:

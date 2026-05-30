@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "sensors": [
+    { "id": "celda_1", "type": "loadcell", "unit": "kg", "raw_key": "celda_1", "filter": "median", "cal": "offset_scale", "chart": "carga", "axis": "y", "color": "#1f77b4", "label": "Celda 1" },
+    { "id": "celda_2", "type": "loadcell", "unit": "kg", "raw_key": "celda_2", "filter": "median", "cal": "offset_scale", "chart": "carga", "axis": "y", "color": "#ff7f0e", "label": "Celda 2" },
+    { "id": "celda_3", "type": "loadcell", "unit": "kg", "raw_key": "celda_3", "filter": "median", "cal": "offset_scale", "chart": "carga", "axis": "y", "color": "#2ca02c", "label": "Celda 3" },
+    { "id": "celda_4", "type": "loadcell", "unit": "kg", "raw_key": "celda_4", "filter": "median", "cal": "offset_scale", "chart": "carga", "axis": "y", "color": "#d62728", "label": "Celda 4" },
+    { "id": "celda_5", "type": "loadcell", "unit": "kg", "raw_key": "celda_5", "filter": "median", "cal": "offset_scale", "chart": "carga", "axis": "y", "color": "#9467bd", "label": "Celda 5" },
+    { "id": "celda_6", "type": "loadcell", "unit": "kg", "raw_key": "celda_6", "filter": "median", "cal": "offset_scale", "chart": "carga", "axis": "y", "color": "#8c564b", "label": "Celda 6" },
+    { "id": "celda_7", "type": "loadcell", "unit": "kg", "raw_key": "celda_7", "filter": "median", "cal": "offset_scale", "chart": "carga", "axis": "y", "color": "#e377c2", "label": "Celda 7" },
+    { "id": "celda_8", "type": "loadcell", "unit": "kg", "raw_key": "celda_8", "filter": "median", "cal": "offset_scale", "chart": "carga", "axis": "y", "color": "#7f7f7f", "label": "Celda 8" },
+    { "id": "celda_9", "type": "loadcell", "unit": "kg", "raw_key": "celda_9", "filter": "median", "cal": "offset_scale", "chart": "carga", "axis": "y", "color": "#bcbd22", "label": "Celda 9" },
+    { "id": "dimension", "type": "dimension", "unit": "mm", "raw_key": "stroke", "raw_aliases": ["dimension", "stroke", "stroke_rel"], "filter": "none", "cal": "min_max", "chart": "carga_def", "axis": "x", "color": "#17becf", "label": "Distancia" },
+    { "id": "pressure", "type": "pressure", "unit": "bar", "raw_key": "pressure", "filter": "ema", "filter_params": { "alpha": 0.2 }, "cal": "offset", "chart": "carga_def", "axis": "y2", "color": "#d62728", "label": "Presión" }
+  ]
+}

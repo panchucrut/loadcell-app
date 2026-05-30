@@ -4,3 +4,4 @@ __pycache__/
 *.pyc
 sessions/
 *.log
+.DS_Store
