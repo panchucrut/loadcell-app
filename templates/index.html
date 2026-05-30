@@ -113,10 +113,13 @@
               </div>
             </div>
             <!-- F2: chip del ensayo activo -->
-            <div id="ensayoChip" class="mb-2 d-none">
+            <div id="ensayoChip" class="mb-2 d-none d-flex align-items-center flex-wrap gap-2">
               <span class="text-muted" style="font-size:0.75rem">Ensayo activo: </span>
               <span id="ensayoChipTipo" class="tipo-badge"></span>
               <span id="ensayoChipTitulo" class="text-muted ms-1" style="font-size:0.75rem"></span>
+              <!-- Fase C: selector rápido de tipo desde Monitor -->
+              <select id="monitorTipoSel" class="form-select form-select-sm" style="width:auto;font-size:0.72rem"
+                      onchange="setTipoFromMonitor(this.value)" title="Cambiar tipo de ensayo"></select>
             </div>
             <!-- Fase B: banner de descarte con ventana de gracia -->
             <div id="discardBanner" class="alert alert-warning d-none d-flex align-items-center justify-content-between py-2 px-3 mb-2">
@@ -690,6 +693,21 @@ const TIPO_LABELS = {
   def_total:   'Def. total',
 };
 
+// Fase C: color estable por tipo (overrides base alineados al borde CSS .tipo-*)
+const TIPO_COLORS = {
+  comp_cubo:   '#d97706',
+  comp_piso:   '#16a34a',
+  def_esquina: '#7c3aed',
+  def_total:   '#dc2626',
+};
+function tipoColor(tipo){
+  if(!tipo) return '#7c3aed';
+  if(TIPO_COLORS[tipo]) return TIPO_COLORS[tipo];
+  // fallback determinista para tipos custom: hash de la clave -> HSL
+  let h=0; for(let i=0;i<tipo.length;i++){ h=(h*31+tipo.charCodeAt(i))>>>0; }
+  return `hsl(${h%360} 65% 45%)`;
+}
+
 let paused=false, recording=false, connected=false, windowSec=60, selectedSes=null;
 // T9: multi-select state
 let _selMode = false;
@@ -1105,6 +1123,17 @@ function loadTipos(callback){
       sel.appendChild(o);
     });
     if(cur && tipos[cur]) sel.value = cur;
+    // Fase C: poblar selector de Monitor
+    const mSel = document.getElementById('monitorTipoSel');
+    if(mSel){
+      const mCur = mSel.value;
+      mSel.innerHTML = '';
+      Object.entries(tipos).forEach(([k,v])=>{
+        const o=document.createElement('option'); o.value=k; o.textContent=v; mSel.appendChild(o);
+      });
+      const want = (_currentMeta&&_currentMeta.tipo) || mCur;
+      if(want && tipos[want]) mSel.value = want;
+    }
     // update config list
     renderTiposList(tipos);
     if(typeof loadEnsayoCfg==='function') loadEnsayoCfg();
@@ -1204,9 +1233,39 @@ function updateEnsayoChip(meta){
   const tituloEl  = document.getElementById('ensayoChipTitulo');
   chip.classList.remove('d-none');
   tipoBadge.className = `tipo-badge tipo-${meta.tipo}`;
-  tipoBadge.textContent = TIPO_LABELS[meta.tipo]||meta.tipo;
+  tipoBadge.textContent = TIPO_LABELS[meta.tipo]||(_tiposCache&&_tiposCache[meta.tipo])||meta.tipo;
   tituloEl.textContent = meta.material ? `· ${meta.material}` : '';
   if(meta.operador) tituloEl.textContent += ` · ${meta.operador}`;
+  // Fase C: sincronizar selector de Monitor + aplicar color de tipo
+  const mSel = document.getElementById('monitorTipoSel');
+  if(mSel && mSel.value !== meta.tipo) mSel.value = meta.tipo;
+  applyTipoColor(meta.tipo);
+}
+
+// Fase C: aplica el color del tipo a las series de ensayo (Carga vs Distancia)
+function applyTipoColor(tipo){
+  const c = tipoColor(tipo);
+  if(typeof chartCargaDist!=='undefined'){
+    const ds=chartCargaDist.data.datasets[0];
+    ds.borderColor=c; ds.backgroundColor=c+'22';
+    chartCargaDist.update('none');
+  }
+  const badge=document.getElementById('ensayoChipTipo');
+  if(badge) badge.style.boxShadow=`inset 0 0 0 2px ${c}`;
+}
+
+// Fase C: cambio rápido de tipo desde la pestaña Monitor
+function setTipoFromMonitor(tipo){
+  fetch('/api/ensayo/meta',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({tipo})})
+    .then(r=>r.json()).then(d=>{
+      if(d.ok){
+        _currentMeta = {..._currentMeta, ...d.meta};
+        const modalSel=document.getElementById('ensayoTipo');
+        if(modalSel && modalSel.querySelector(`option[value="${tipo}"]`)) modalSel.value=tipo;
+        updateEnsayoChip(_currentMeta);
+      }
+    });
 }
 
 // F2.5 + T8: subir foto después de guardar (local o QR)
