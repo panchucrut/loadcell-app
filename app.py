@@ -885,7 +885,7 @@ def session_data(name):
     for row in rows:
         for k, v in row.items():
             try:    result[k].append(float(v))
-            except: result[k].append(v)
+            except (ValueError, TypeError): result[k].append(v)
     return jsonify(result)
 
 @app.route('/api/sessions/<name>', methods=['DELETE'])
@@ -965,7 +965,7 @@ def _clean_foto_tokens():
         p = _foto_tokens[k].get('path')
         if p and os.path.exists(p):
             try: os.remove(p)
-            except: pass
+            except OSError: pass
         del _foto_tokens[k]
 
 @app.route('/api/foto/token', methods=['POST'])
@@ -1068,7 +1068,7 @@ def foto_token_status(token):
                 ext = os.path.splitext(info['path'])[1].lower().lstrip('.')
                 mime = 'image/jpeg' if ext in ('jpg','jpeg','heic','heif') else f'image/{ext}'
                 result['preview'] = f'data:{mime};base64,{base64.b64encode(fh.read()).decode()}'
-        except: pass
+        except OSError: pass
     return jsonify(result)
 
 @app.route('/api/foto/token/<token>/claim', methods=['POST'])
@@ -1204,4 +1204,12 @@ def _security_headers(resp):
 
 if __name__ == '__main__':
     print('Abre http://localhost:5050 en tu navegador')
-    socketio.run(app, host='0.0.0.0', port=5050, debug=False, allow_unsafe_werkzeug=True)
+    if _LOCAL_MODE:
+        socketio.run(app, host='127.0.0.1', port=5050, debug=False, allow_unsafe_werkzeug=True)
+    else:
+        # SEC-003: en producción NO usar el servidor de desarrollo de Werkzeug.
+        # Lanzar con: gunicorn -k eventlet -w 1 -b 127.0.0.1:5050 app:app
+        raise RuntimeError(
+            'No iniciar en producción con socketio.run/Werkzeug. '
+            'Usar: gunicorn -k eventlet -w 1 -b 127.0.0.1:5050 app:app'
+        )
