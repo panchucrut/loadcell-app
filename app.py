@@ -37,6 +37,7 @@ app.config['SECRET_KEY'] = _secret
 app.config['SESSION_COOKIE_SECURE']   = True   # solo HTTPS
 app.config['SESSION_COOKIE_HTTPONLY'] = True   # no accesible desde JS
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['MAX_CONTENT_LENGTH'] = 8 * 1024 * 1024   # SEC-002: límite 8 MB por request
 
 # ── Azure AD (F6) ──────────────────────────────────────────────────────────────
 AZURE_CLIENT_ID     = os.getenv('AZURE_CLIENT_ID', '')
@@ -56,13 +57,22 @@ def _msal_app():
 
 _LOCAL_MODE = os.getenv('LOCAL_MODE', 'false').lower() == 'true'
 
+def _safe_next(url):
+    """SEC-007: solo permite rutas internas relativas. Evita open redirect."""
+    if not url or not isinstance(url, str):
+        return url_for('index')
+    # debe empezar con '/' simple y no con '//' ni con esquema (http:, javascript:, etc.)
+    if url.startswith('/') and not url.startswith('//') and '\\' not in url and ':' not in url.split('/', 2)[0]:
+        return url
+    return url_for('index')
+
 def login_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         if _LOCAL_MODE:
             return f(*args, **kwargs)
         if not session.get('user'):
-            return redirect(url_for('auth_login', next=request.url))
+            return redirect(url_for('auth_login', next=request.full_path if request.query_string else request.path))
         return f(*args, **kwargs)
     return decorated
 _ALLOWED_ORIGINS = os.getenv('ALLOWED_ORIGINS', 'https://sensores.dexfloor.com').split(',')
@@ -562,17 +572,24 @@ def _serial_worker():
 # ── auth routes (F6) ───────────────────────────────────────────────────────────
 @app.route('/auth/login')
 def auth_login():
-    next_url = request.args.get('next', url_for('index'))
+    next_url = _safe_next(request.args.get('next'))
     session['auth_next'] = next_url
+    # SEC-001: nonce aleatorio como state para prevenir CSRF de login
+    state = uuid.uuid4().hex
+    session['oauth_state'] = state
     auth_url = _msal_app().get_authorization_request_url(
         AZURE_SCOPE,
         redirect_uri=AZURE_REDIRECT_URI,
-        state=next_url,
+        state=state,
     )
     return redirect(auth_url)
 
 @app.route('/auth/callback')
 def auth_callback():
+    # SEC-001: validar state contra el nonce guardado en sesión
+    expected_state = session.pop('oauth_state', None)
+    if not expected_state or request.args.get('state') != expected_state:
+        return 'Error de autenticación: state inválido', 403
     code = request.args.get('code')
     if not code:
         return 'Error de autenticación: sin código', 400
@@ -592,7 +609,7 @@ def auth_callback():
         'email': claims.get('preferred_username', ''),
         'tid':   claims.get('tid', ''),
     }
-    next_url = session.pop('auth_next', url_for('index'))
+    next_url = _safe_next(session.pop('auth_next', None))
     return redirect(next_url)
 
 @app.route('/auth/logout')
@@ -1007,16 +1024,28 @@ document.getElementById('fInput').addEventListener('change',function(){
 def foto_upload_receive(token):
     if token not in _foto_tokens or _foto_tokens[token]['expires'] < time.time():
         return jsonify({'ok': False, 'msg': 'token invalido o expirado'}), 410
+    if _foto_tokens[token].get('path'):
+        return jsonify({'ok': False, 'msg': 'ya se recibio una foto'}), 409
     if 'foto' not in request.files:
         return jsonify({'ok': False, 'msg': 'sin archivo'}), 400
     f = request.files['foto']
     ext = os.path.splitext(f.filename)[1].lower() if f.filename else '.jpg'
     if ext not in ('.jpg', '.jpeg', '.png', '.heic', '.heif', '.webp'):
         return jsonify({'ok': False, 'msg': 'tipo no permitido'}), 400
+    # SEC-002: validar contenido real por magic bytes (no solo la extensión)
+    head = f.stream.read(16); f.stream.seek(0)
+    def _is_img(b):
+        if b[:3] == b'\xff\xd8\xff': return True                     # JPEG
+        if b[:8] == b'\x89PNG\r\n\x1a\n': return True                # PNG
+        if b[:4] == b'RIFF' and b[8:12] == b'WEBP': return True      # WEBP
+        if b[4:8] == b'ftyp': return True                           # HEIC/HEIF (ISO-BMFF)
+        return False
+    if not _is_img(head):
+        return jsonify({'ok': False, 'msg': 'contenido no es una imagen valida'}), 400
     old = _foto_tokens[token].get('path')
     if old and os.path.exists(old):
         try: os.remove(old)
-        except: pass
+        except OSError: pass
     dest = os.path.join(FOTO_TMP_DIR, f'foto_{token}{ext}')
     f.save(dest)
     _foto_tokens[token]['path'] = dest
@@ -1148,6 +1177,30 @@ def manual():
     else:
         html = f'<pre>{src}</pre>'
     return render_template('manual.html', content=html)
+
+
+# ── SEC-004: cabeceras de seguridad en todas las respuestas ─────────────────────
+@app.after_request
+def _security_headers(resp):
+    resp.headers['X-Frame-Options'] = 'DENY'
+    resp.headers['X-Content-Type-Options'] = 'nosniff'
+    resp.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+    # CSP: permite solo los CDNs efectivamente usados por el frontend
+    cdn = "https://cdn.jsdelivr.net https://cdn.socket.io https://cdnjs.cloudflare.com"
+    resp.headers['Content-Security-Policy'] = (
+        "default-src 'self'; "
+        f"script-src 'self' {cdn}; "
+        f"style-src 'self' 'unsafe-inline' {cdn}; "
+        "img-src 'self' data: blob:; "
+        "connect-src 'self' ws: wss:; "
+        "font-src 'self' data:; "
+        "frame-ancestors 'none'"
+    )
+    # HSTS solo cuando se sirve por HTTPS (no en modo local)
+    if not _LOCAL_MODE:
+        resp.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
+    return resp
+
 
 if __name__ == '__main__':
     print('Abre http://localhost:5050 en tu navegador')
