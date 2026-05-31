@@ -1186,11 +1186,10 @@ def _security_headers(resp):
     resp.headers['X-Content-Type-Options'] = 'nosniff'
     resp.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
     # CSP: permite solo los CDNs efectivamente usados por el frontend
-    cdn = "https://cdn.jsdelivr.net https://cdn.socket.io https://cdnjs.cloudflare.com"
     resp.headers['Content-Security-Policy'] = (
         "default-src 'self'; "
-        f"script-src 'self' {cdn}; "
-        f"style-src 'self' 'unsafe-inline' {cdn}; "
+        "script-src 'self'; "
+        "style-src 'self' 'unsafe-inline'; "
         "img-src 'self' data: blob:; "
         "connect-src 'self' ws: wss:; "
         "font-src 'self' data:; "
