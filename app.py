@@ -1188,7 +1188,7 @@ def _security_headers(resp):
     # CSP: permite solo los CDNs efectivamente usados por el frontend
     resp.headers['Content-Security-Policy'] = (
         "default-src 'self'; "
-        "script-src 'self'; "
+        "script-src 'self' 'unsafe-inline'; "
         "style-src 'self' 'unsafe-inline'; "
         "img-src 'self' data: blob:; "
         "connect-src 'self' ws: wss:; "
