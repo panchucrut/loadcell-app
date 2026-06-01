@@ -256,6 +256,18 @@
               </div>
             </div>
             <div style="height:280px;position:relative"><canvas id="anChartCargaT"></canvas></div>
+            <div class="d-flex flex-wrap gap-2 mt-2 align-items-center" style="font-size:12px;">
+              <span class="text-muted">Eje X (s):</span>
+              <input type="number" id="ctXMin" class="form-control form-control-sm" style="width:80px" placeholder="Mín" oninput="applyCargaTRange()">
+              <input type="number" id="ctXMax" class="form-control form-control-sm" style="width:80px" placeholder="Máx" oninput="applyCargaTRange()">
+              <span class="text-muted ms-2">Eje Y (kg):</span>
+              <input type="number" id="ctYMin" class="form-control form-control-sm" style="width:80px" placeholder="Mín" oninput="applyCargaTRange()">
+              <input type="number" id="ctYMax" class="form-control form-control-sm" style="width:80px" placeholder="Máx" oninput="applyCargaTRange()">
+              <span class="text-muted ms-2" style="color:#f59e0b">Y2 (bar):</span>
+              <input type="number" id="ctY2Min" class="form-control form-control-sm" style="width:80px" placeholder="Mín" oninput="applyCargaTRange()">
+              <input type="number" id="ctY2Max" class="form-control form-control-sm" style="width:80px" placeholder="Máx" oninput="applyCargaTRange()">
+              <button class="btn btn-sm btn-outline-secondary" onclick="resetCargaTRange()">&#x21BA; Auto</button>
+            </div>
             <div id="analisisLegend" class="mt-3 d-flex flex-wrap gap-2"></div>
           </div>
 
@@ -266,6 +278,15 @@
               <button class="btn btn-sm btn-outline-secondary" onclick="exportAnalisisPNG('anChartDistT')">⬇ PNG</button>
             </div>
             <div style="height:250px;position:relative"><canvas id="anChartDistT"></canvas></div>
+            <div class="d-flex flex-wrap gap-2 mt-2 align-items-center" style="font-size:12px;">
+              <span class="text-muted">Eje X (s):</span>
+              <input type="number" id="dtXMin" class="form-control form-control-sm" style="width:80px" placeholder="Mín" oninput="applyDistTRange()">
+              <input type="number" id="dtXMax" class="form-control form-control-sm" style="width:80px" placeholder="Máx" oninput="applyDistTRange()">
+              <span class="text-muted ms-2">Eje Y (mm):</span>
+              <input type="number" id="dtYMin" class="form-control form-control-sm" style="width:80px" placeholder="Mín" oninput="applyDistTRange()">
+              <input type="number" id="dtYMax" class="form-control form-control-sm" style="width:80px" placeholder="Máx" oninput="applyDistTRange()">
+              <button class="btn btn-sm btn-outline-secondary" onclick="resetDistTRange()">&#x21BA; Auto</button>
+            </div>
           </div>
 
           <!-- Chart 3: Carga vs Distancia (scatter) -->
@@ -1778,30 +1799,78 @@ function renderAnalisis() {
     const timeLabels = longestT ? (longestT.data.t_rel || longestT.data.t).map(v => parseFloat(v).toFixed(1)) : [];
 
     analisisChart.data.datasets = dsCargaDef;
-    analisisChart.update();
-
     anChartCargaT.data.labels = timeLabels;
     anChartCargaT.data.datasets = dsCargaT;
-    anChartCargaT.update();
-
     anChartDistT.data.labels = timeLabels;
     anChartDistT.data.datasets = dsDistT;
+
+    _reapplyAnRanges();
+    analisisChart.update();
+    anChartCargaT.update();
     anChartDistT.update();
   });
 }
 
+// Límites de ejes — persistidos en memoria de sesión (vacío = auto)
+const _anRanges = { cargaDef:{}, cargaT:{}, distT:{} };
+// vacío o no numérico => undefined (escala automática)
+function _num(id) { const v = document.getElementById(id).value; return v !== '' && !isNaN(parseFloat(v)) ? parseFloat(v) : undefined; }
+
 function applyAnalisisRange() {
-  analisisChart.options.scales.x.min = document.getElementById('anXMin').value !== '' ? parseFloat(document.getElementById('anXMin').value) : undefined;
-  analisisChart.options.scales.x.max = document.getElementById('anXMax').value !== '' ? parseFloat(document.getElementById('anXMax').value) : undefined;
-  analisisChart.options.scales.y.min = document.getElementById('anYMin').value !== '' ? parseFloat(document.getElementById('anYMin').value) : undefined;
-  analisisChart.options.scales.y.max = document.getElementById('anYMax').value !== '' ? parseFloat(document.getElementById('anYMax').value) : undefined;
+  if (!analisisChart) return;
+  const r = { xMin:_num('anXMin'), xMax:_num('anXMax'), yMin:_num('anYMin'), yMax:_num('anYMax') };
+  _anRanges.cargaDef = r;
+  const s = analisisChart.options.scales;
+  s.x.min = r.xMin; s.x.max = r.xMax; s.y.min = r.yMin; s.y.max = r.yMax;
   analisisChart.update('none');
 }
 function resetAnalisisRange() {
   ['anYMin','anYMax','anXMin','anXMax'].forEach(id => { document.getElementById(id).value = ''; });
-  analisisChart.options.scales.x.min = analisisChart.options.scales.x.max = undefined;
-  analisisChart.options.scales.y.min = analisisChart.options.scales.y.max = undefined;
+  _anRanges.cargaDef = {};
+  const s = analisisChart.options.scales;
+  s.x.min = s.x.max = s.y.min = s.y.max = undefined;
   analisisChart.update('none');
+}
+
+function applyCargaTRange() {
+  if (!anChartCargaT) return;
+  const r = { xMin:_num('ctXMin'), xMax:_num('ctXMax'), yMin:_num('ctYMin'), yMax:_num('ctYMax'), y2Min:_num('ctY2Min'), y2Max:_num('ctY2Max') };
+  _anRanges.cargaT = r;
+  const s = anChartCargaT.options.scales;
+  s.x.min = r.xMin; s.x.max = r.xMax; s.y.min = r.yMin; s.y.max = r.yMax;
+  s.y2.min = r.y2Min; s.y2.max = r.y2Max;
+  anChartCargaT.update('none');
+}
+function resetCargaTRange() {
+  ['ctXMin','ctXMax','ctYMin','ctYMax','ctY2Min','ctY2Max'].forEach(id => { document.getElementById(id).value = ''; });
+  _anRanges.cargaT = {};
+  const s = anChartCargaT.options.scales;
+  s.x.min = s.x.max = s.y.min = s.y.max = s.y2.min = s.y2.max = undefined;
+  anChartCargaT.update('none');
+}
+
+function applyDistTRange() {
+  if (!anChartDistT) return;
+  const r = { xMin:_num('dtXMin'), xMax:_num('dtXMax'), yMin:_num('dtYMin'), yMax:_num('dtYMax') };
+  _anRanges.distT = r;
+  const s = anChartDistT.options.scales;
+  s.x.min = r.xMin; s.x.max = r.xMax; s.y.min = r.yMin; s.y.max = r.yMax;
+  anChartDistT.update('none');
+}
+function resetDistTRange() {
+  ['dtXMin','dtXMax','dtYMin','dtYMax'].forEach(id => { document.getElementById(id).value = ''; });
+  _anRanges.distT = {};
+  const s = anChartDistT.options.scales;
+  s.x.min = s.x.max = s.y.min = s.y.max = undefined;
+  anChartDistT.update('none');
+}
+
+// Reaplica los límites guardados tras un re-render (los datasets cambian, las escalas no)
+function _reapplyAnRanges() {
+  const a = _anRanges.cargaDef, c = _anRanges.cargaT, d = _anRanges.distT;
+  if (analisisChart) { const s = analisisChart.options.scales; s.x.min=a.xMin; s.x.max=a.xMax; s.y.min=a.yMin; s.y.max=a.yMax; }
+  if (anChartCargaT) { const s = anChartCargaT.options.scales; s.x.min=c.xMin; s.x.max=c.xMax; s.y.min=c.yMin; s.y.max=c.yMax; s.y2.min=c.y2Min; s.y2.max=c.y2Max; }
+  if (anChartDistT)  { const s = anChartDistT.options.scales; s.x.min=d.xMin; s.x.max=d.xMax; s.y.min=d.yMin; s.y.max=d.yMax; }
 }
 
 function exportAnalisisPNG(chartId) {
