@@ -43,10 +43,11 @@ app.config['MAX_CONTENT_LENGTH'] = 8 * 1024 * 1024   # SEC-002: límite 8 MB por
 AZURE_CLIENT_ID     = os.getenv('AZURE_CLIENT_ID', '')
 AZURE_CLIENT_SECRET = os.getenv('AZURE_CLIENT_SECRET', '')
 AZURE_TENANT_ID     = os.getenv('AZURE_TENANT_ID', '')
-AZURE_REDIRECT_URI  = os.getenv('AZURE_REDIRECT_URI', 'https://sensores.dexfloor.com/auth/callback')
+AZURE_REDIRECT_URI  = os.getenv('AZURE_REDIRECT_URI', 'https://ensayos.dexfloor.com/auth/callback')
 AZURE_AUTHORITY     = f'https://login.microsoftonline.com/{AZURE_TENANT_ID}'
 AZURE_SCOPE         = ['User.Read']
 ALLOWED_TENANT      = AZURE_TENANT_ID
+ALLOWED_EMAIL_DOMAIN = os.getenv('ALLOWED_EMAIL_DOMAIN', 'dexfloor.com').lower()
 
 def _msal_app():
     return msal.ConfidentialClientApplication(
@@ -604,6 +605,10 @@ def auth_callback():
     # Verificar que pertenece al tenant dexfloor.com
     if claims.get('tid') != ALLOWED_TENANT:
         return 'Acceso denegado: cuenta no pertenece a dexfloor.com', 403
+    # SEC: defensa en profundidad — exigir email @dexfloor.com (excluye invitados/guests)
+    _email = (claims.get('preferred_username') or claims.get('email') or '').lower()
+    if not _email.endswith('@' + ALLOWED_EMAIL_DOMAIN):
+        return 'Acceso denegado: se requiere una cuenta @dexfloor.com', 403
     session['user'] = {
         'name':  claims.get('name', ''),
         'email': claims.get('preferred_username', ''),
