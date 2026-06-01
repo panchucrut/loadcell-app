@@ -467,19 +467,9 @@
             </div>
             <div class="text-muted mt-2" style="font-size:0.66rem">Campos vacíos usan el valor por defecto global. Guarda cada tipo por separado.</div>
           </div>
-        </div>
-
-        <div class="col-md-6">
-          <div class="card p-3 mb-3">
-            <div class="fw-semibold mb-3">Offsets y escalas manuales</div>
-            <p class="text-muted small">Edita directamente los valores de calibración si necesitas ajuste fino.</p>
-            <button class="btn btn-sm btn-outline-primary w-100" data-bs-toggle="modal" data-bs-target="#calModal">
-              Editar offsets y escalas
-            </button>
-          </div>
 
           <!-- T6: Alarma de límite -->
-          <div class="card p-3">
+          <div class="card p-3 mt-3">
             <div class="d-flex justify-content-between align-items-center mb-3">
               <span class="fw-semibold">🔔 Alarma de límite</span>
               <div class="d-flex gap-2 align-items-center">
@@ -506,9 +496,11 @@
             </div>
             <div class="text-muted" style="font-size:0.68rem">Cuando el valor del sensor alcance o supere este umbral, se emitirá una alerta sonora y visual.</div>
           </div>
+        </div>
 
+        <div class="col-md-6">
           <!-- T7: Tipos de ensayo predefinidos -->
-          <div class="card p-3 mt-3">
+          <div class="card p-3">
             <div class="d-flex justify-content-between align-items-center mb-3">
               <span class="fw-semibold">🗂 Tipos de ensayo</span>
             </div>
@@ -527,6 +519,14 @@
                 <button class="btn btn-sm btn-primary w-100" onclick="addTipo()">+ Agregar</button>
               </div>
             </div>
+          </div>
+
+          <div class="card p-3 mt-3">
+            <div class="fw-semibold mb-3">Offsets y escalas manuales</div>
+            <p class="text-muted small">Edita directamente los valores de calibración si necesitas ajuste fino.</p>
+            <button class="btn btn-sm btn-outline-primary w-100" data-bs-toggle="modal" data-bs-target="#calModal">
+              Editar offsets y escalas
+            </button>
           </div>
         </div>
       </div>
