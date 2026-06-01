@@ -1307,6 +1307,10 @@ function loadSessions(){
       const starred = meta.starred;
       const starIcon = starred ? '★' : '☆';
       const starColor = starred ? '#f59e0b' : 'var(--muted)';
+      const importante = meta.importante;
+      const impIcon = importante ? '🔒' : '🔓';
+      const comentario = meta.comentario || '';
+      const comLine = comentario ? `<div class="text-muted" style="font-size:0.68rem;white-space:pre-wrap;word-break:break-word">💬 ${escapeHtml(comentario)}</div>` : '';
       const materialLine = meta.material ? `<span class="text-muted" style="font-size:0.68rem">${escapeHtml(meta.material)}${meta.dimensiones?' · '+escapeHtml(meta.dimensiones):''}</span>` : '';
       const opLine = meta.operador ? `<span class="text-muted" style="font-size:0.68rem"> · ${escapeHtml(meta.operador)}</span>` : '';
       const chk = _selMode ? `<input type="checkbox" class="form-check-input me-2 sel-chk" data-name="${s.name}" ${_selSet.has(s.name)?'checked':''} onclick="event.stopPropagation();toggleSelItem('${s.name}',this.checked)" style="cursor:pointer">` : '';
@@ -1320,10 +1324,14 @@ function loadSessions(){
           </div>
           <div class="d-flex gap-1">
             <button class="btn btn-sm p-0" style="font-size:0.85rem;color:${starColor};line-height:1" onclick="event.stopPropagation();toggleStar('${s.name}')" title="${starred?'Quitar destacado':'Destacar'}">${starIcon}</button>
+            <button class="btn btn-sm p-0 ms-1" style="font-size:0.8rem;line-height:1" onclick="event.stopPropagation();toggleImportante('${s.name}')" title="${importante?'Importante (no borrable). Click para desmarcar':'Marcar como importante'}">${impIcon}</button>
+            <button class="btn btn-sm p-0 ms-1" style="font-size:0.8rem;line-height:1" onclick="event.stopPropagation();editComentario('${s.name}')" title="Comentario">💬</button>
             <button class="btn btn-sm p-0 ms-1" style="font-size:0.65rem;color:var(--muted)" onclick="event.stopPropagation();showSesionDetail('${s.name}')" title="Ver metadata">ℹ</button>
+            <button class="btn btn-sm p-0 ms-1" style="font-size:0.75rem;line-height:1;color:${importante?'var(--muted)':'#dc3545'}" onclick="event.stopPropagation();deleteSession('${s.name}',${importante?'true':'false'})" title="${importante?'No se puede borrar (importante)':'Eliminar'}" ${importante?'disabled':''}>🗑</button>
           </div>
         </div>
         <div>${materialLine}${opLine}</div>
+        ${comLine}
         <div class="text-muted" style="font-size:0.68rem">${s.rows} registros</div>
       </div>`;
     }).join('');
@@ -1341,6 +1349,8 @@ function showSesionDetail(name){
       ['Dimensiones', m.dimensiones||'—'],
       ['Operador', m.operador||'—'],
       ['Notas', m.notas||'—'],
+      ['Comentario', m.comentario||'—'],
+      ['Importante', m.importante?'Sí (no borrable)':'No'],
       ['Archivo', name],
       ['Registros', s.rows],
       ['Timestamp', m.timestamp||'—'],
@@ -1357,6 +1367,34 @@ function toggleStar(name){
   fetch(`/api/sessions/${name}/star`,{method:'POST'}).then(r=>r.json()).then(d=>{
     if(d.ok) loadSessions();
   });
+}
+
+function toggleImportante(name){
+  fetch(`/api/sessions/${name}/importante`,{method:'POST'}).then(r=>r.json()).then(d=>{
+    if(d.ok) loadSessions();
+  });
+}
+
+function editComentario(name){
+  fetch('/api/sessions').then(r=>r.json()).then(list=>{
+    const s = list.find(x=>x.name===name);
+    const actual = (s && s.meta && s.meta.comentario) || '';
+    const com = prompt('Comentario del ensayo (máx 2000):', actual);
+    if(com===null) return;
+    fetch(`/api/sessions/${name}/comentario`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({comentario:com})})
+      .then(r=>{if(!r.ok)throw 0;return r.json();})
+      .then(d=>{if(d.ok)loadSessions();})
+      .catch(()=>alert('No se pudo guardar el comentario'));
+  });
+}
+
+function deleteSession(name, importante){
+  if(importante){alert('Ensayo marcado como importante; no se puede borrar.');return;}
+  if(!confirm(`¿Eliminar ensayo "${name}"? Esta acción no se puede deshacer.`)) return;
+  fetch(`/api/sessions/${name}`,{method:'DELETE'}).then(r=>r.json().then(d=>({ok:r.ok,d}))).then(({ok,d})=>{
+    if(ok&&d.ok){if(selectedSes===name)selectedSes=null;loadSessions();}
+    else alert(d.error||'No se pudo eliminar');
+  }).catch(()=>alert('No se pudo eliminar'));
 }
 
 function selectSession(name){selectedSes=name;document.getElementById('compareBar').classList.remove('d-none');loadSessions();}
