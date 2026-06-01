@@ -28,9 +28,9 @@ _token = {'value': None, 'exp': 0.0}
 
 def _cfg():
     return {
-        'client_id':   os.getenv('AZURE_CLIENT_ID', ''),
-        'client_secret': os.getenv('AZURE_CLIENT_SECRET', ''),
-        'tenant_id':   os.getenv('AZURE_TENANT_ID', ''),
+        'client_id':   os.getenv('AZURE_CLIENT_ID')     or os.getenv('CLIENT_ID', ''),
+        'client_secret': os.getenv('AZURE_CLIENT_SECRET') or os.getenv('CLIENT_SECRET', ''),
+        'tenant_id':   os.getenv('AZURE_TENANT_ID')     or os.getenv('TENANT_ID', ''),
         'site_id':     os.getenv('GRAPH_SITE_ID', ''),
         'drive_id':    os.getenv('GRAPH_DRIVE_ID', ''),
         'base_folder': os.getenv('GRAPH_BASE_FOLDER', 'Ensayos Pisos DEX'),

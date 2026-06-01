@@ -41,9 +41,9 @@ app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['MAX_CONTENT_LENGTH'] = 8 * 1024 * 1024   # SEC-002: límite 8 MB por request
 
 # ── Azure AD (F6) ──────────────────────────────────────────────────────────────
-AZURE_CLIENT_ID     = os.getenv('AZURE_CLIENT_ID', '')
-AZURE_CLIENT_SECRET = os.getenv('AZURE_CLIENT_SECRET', '')
-AZURE_TENANT_ID     = os.getenv('AZURE_TENANT_ID', '')
+AZURE_CLIENT_ID     = os.getenv('AZURE_CLIENT_ID')     or os.getenv('CLIENT_ID', '')
+AZURE_CLIENT_SECRET = os.getenv('AZURE_CLIENT_SECRET') or os.getenv('CLIENT_SECRET', '')
+AZURE_TENANT_ID     = os.getenv('AZURE_TENANT_ID')     or os.getenv('TENANT_ID', '')
 AZURE_REDIRECT_URI  = os.getenv('AZURE_REDIRECT_URI', 'https://ensayos.dexfloor.com/auth/callback')
 AZURE_AUTHORITY     = f'https://login.microsoftonline.com/{AZURE_TENANT_ID}'
 AZURE_SCOPE         = ['User.Read']

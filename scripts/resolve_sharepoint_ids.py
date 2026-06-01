@@ -26,9 +26,9 @@ try:
 except ImportError:
     pass
 
-CLIENT_ID = os.getenv('AZURE_CLIENT_ID', '')
-CLIENT_SECRET = os.getenv('AZURE_CLIENT_SECRET', '')
-TENANT_ID = os.getenv('AZURE_TENANT_ID', '')
+CLIENT_ID = os.getenv('AZURE_CLIENT_ID') or os.getenv('CLIENT_ID', '')
+CLIENT_SECRET = os.getenv('AZURE_CLIENT_SECRET') or os.getenv('CLIENT_SECRET', '')
+TENANT_ID = os.getenv('AZURE_TENANT_ID') or os.getenv('TENANT_ID', '')
 
 HOSTNAME = 'dexfloor.sharepoint.com'
 SITE_PATH = '/sites/DEXFloor'   # ajustar si el path real difiere
