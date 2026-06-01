@@ -368,68 +368,7 @@
               </div>
               <span id="autoRecStatus" class="badge bg-secondary">off</span>
             </div>
-            <div class="text-muted" style="font-size:0.68rem">Los umbrales de disparo y término se configuran por tipo de ensayo (panel de la derecha).</div>
-          </div>
-        </div>
-
-        <div class="col-md-6">
-          <div class="card p-3 mb-3">
-            <div class="fw-semibold mb-3">Offsets y escalas manuales</div>
-            <p class="text-muted small">Edita directamente los valores de calibración si necesitas ajuste fino.</p>
-            <button class="btn btn-sm btn-outline-primary w-100" data-bs-toggle="modal" data-bs-target="#calModal">
-              Editar offsets y escalas
-            </button>
-          </div>
-
-          <!-- T6: Alarma de límite -->
-          <div class="card p-3">
-            <div class="d-flex justify-content-between align-items-center mb-3">
-              <span class="fw-semibold">🔔 Alarma de límite</span>
-              <div class="d-flex gap-2 align-items-center">
-                <div class="form-check form-switch mb-0">
-                  <input class="form-check-input" type="checkbox" id="alarmEnabled">
-                  <label class="form-check-label" for="alarmEnabled" style="font-size:0.78rem">Activar</label>
-                </div>
-              </div>
-            </div>
-            <div class="mb-2">
-              <label class="form-label mb-0 text-muted" style="font-size:0.75rem">Sensor a vigilar</label>
-              <select class="form-select form-select-sm" id="alarmSensor">
-                <option value="total">Carga total</option>
-                <option value="any_cell">Cualquier celda (individual)</option>
-                <option value="pressure">Presión (bar)</option>
-                <option value="dimension">Distancia (mm)</option>
-              </select>
-            </div>
-            <div class="mb-2">
-              <label class="form-label mb-0 text-muted" style="font-size:0.75rem">
-                Umbral: <strong id="lblAlarmThreshold">500</strong>
-              </label>
-              <input type="number" class="form-control form-control-sm" id="inpAlarmThreshold" value="500" min="0" step="10">
-            </div>
-            <div class="text-muted" style="font-size:0.68rem">Cuando el valor del sensor alcance o supere este umbral, se emitirá una alerta sonora y visual.</div>
-          </div>
-
-          <!-- T7: Tipos de ensayo predefinidos -->
-          <div class="card p-3 mt-3">
-            <div class="d-flex justify-content-between align-items-center mb-3">
-              <span class="fw-semibold">🗂 Tipos de ensayo</span>
-            </div>
-            <div id="tiposListConfig" class="mb-3"></div>
-            <div class="row g-1">
-              <div class="col-4">
-                <input type="text" class="form-control form-control-sm" id="inpTipoKey" placeholder="clave (ej. flex_viga)"
-                       style="font-size:0.75rem">
-                <div class="text-muted mt-1" style="font-size:0.65rem">minúsculas, sin espacios</div>
-              </div>
-              <div class="col-5">
-                <input type="text" class="form-control form-control-sm" id="inpTipoLabel" placeholder="Nombre visible"
-                       style="font-size:0.75rem">
-              </div>
-              <div class="col-3">
-                <button class="btn btn-sm btn-primary w-100" onclick="addTipo()">+ Agregar</button>
-              </div>
-            </div>
+            <div class="text-muted" style="font-size:0.68rem">Los umbrales de disparo y término se configuran por tipo de ensayo (panel inferior).</div>
           </div>
 
           <!-- Paso 3-UI: parámetros de inicio/término por tipo -->
@@ -495,6 +434,67 @@
               </div>
             </div>
             <div class="text-muted mt-2" style="font-size:0.66rem">Campos vacíos usan el valor por defecto global. Guarda cada tipo por separado.</div>
+          </div>
+        </div>
+
+        <div class="col-md-6">
+          <div class="card p-3 mb-3">
+            <div class="fw-semibold mb-3">Offsets y escalas manuales</div>
+            <p class="text-muted small">Edita directamente los valores de calibración si necesitas ajuste fino.</p>
+            <button class="btn btn-sm btn-outline-primary w-100" data-bs-toggle="modal" data-bs-target="#calModal">
+              Editar offsets y escalas
+            </button>
+          </div>
+
+          <!-- T6: Alarma de límite -->
+          <div class="card p-3">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+              <span class="fw-semibold">🔔 Alarma de límite</span>
+              <div class="d-flex gap-2 align-items-center">
+                <div class="form-check form-switch mb-0">
+                  <input class="form-check-input" type="checkbox" id="alarmEnabled">
+                  <label class="form-check-label" for="alarmEnabled" style="font-size:0.78rem">Activar</label>
+                </div>
+              </div>
+            </div>
+            <div class="mb-2">
+              <label class="form-label mb-0 text-muted" style="font-size:0.75rem">Sensor a vigilar</label>
+              <select class="form-select form-select-sm" id="alarmSensor">
+                <option value="total">Carga total</option>
+                <option value="any_cell">Cualquier celda (individual)</option>
+                <option value="pressure">Presión (bar)</option>
+                <option value="dimension">Distancia (mm)</option>
+              </select>
+            </div>
+            <div class="mb-2">
+              <label class="form-label mb-0 text-muted" style="font-size:0.75rem">
+                Umbral: <strong id="lblAlarmThreshold">500</strong>
+              </label>
+              <input type="number" class="form-control form-control-sm" id="inpAlarmThreshold" value="500" min="0" step="10">
+            </div>
+            <div class="text-muted" style="font-size:0.68rem">Cuando el valor del sensor alcance o supere este umbral, se emitirá una alerta sonora y visual.</div>
+          </div>
+
+          <!-- T7: Tipos de ensayo predefinidos -->
+          <div class="card p-3 mt-3">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+              <span class="fw-semibold">🗂 Tipos de ensayo</span>
+            </div>
+            <div id="tiposListConfig" class="mb-3"></div>
+            <div class="row g-1">
+              <div class="col-4">
+                <input type="text" class="form-control form-control-sm" id="inpTipoKey" placeholder="clave (ej. flex_viga)"
+                       style="font-size:0.75rem">
+                <div class="text-muted mt-1" style="font-size:0.65rem">minúsculas, sin espacios</div>
+              </div>
+              <div class="col-5">
+                <input type="text" class="form-control form-control-sm" id="inpTipoLabel" placeholder="Nombre visible"
+                       style="font-size:0.75rem">
+              </div>
+              <div class="col-3">
+                <button class="btn btn-sm btn-primary w-100" onclick="addTipo()">+ Agregar</button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
