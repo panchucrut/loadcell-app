@@ -907,6 +907,16 @@ def session_data(name):
 @login_required
 def del_session(name):
     name = _safe_name(name)
+    # SEC-010: no permitir borrar ensayos marcados como importantes
+    meta_path = os.path.join(SESSIONS_DIR, name + '_meta.json')
+    if os.path.exists(meta_path):
+        try:
+            with open(meta_path) as f:
+                _m = json.load(f)
+            if _m.get('importante'):
+                return jsonify({'error': 'Ensayo marcado como importante; no se puede borrar.'}), 403
+        except (ValueError, OSError):
+            pass
     for ext in ('.csv', '.xlsx', '_meta.json'):
         p = os.path.join(SESSIONS_DIR, name + ext)
         if os.path.exists(p):
@@ -954,6 +964,43 @@ def toggle_star(name):
     with open(meta_path, 'w') as f:
         json.dump(meta, f, indent=2, ensure_ascii=False)
     return jsonify({'ok': True, 'starred': meta['starred']})
+
+# Backlog #2: marcar/desmarcar ensayo importante (los importantes no se pueden borrar)
+@app.route('/api/sessions/<name>/importante', methods=['POST'])
+@login_required
+def toggle_importante(name):
+    name = _safe_name(name)
+    meta_path = os.path.join(SESSIONS_DIR, name + '_meta.json')
+    meta = {}
+    if os.path.exists(meta_path):
+        with open(meta_path) as f:
+            meta = json.load(f)
+    meta['importante'] = not meta.get('importante', False)
+    with open(meta_path, 'w') as f:
+        json.dump(meta, f, indent=2, ensure_ascii=False)
+    return jsonify({'ok': True, 'importante': meta['importante']})
+
+# Backlog #2: guardar comentario del ensayo
+@app.route('/api/sessions/<name>/comentario', methods=['POST'])
+@login_required
+def set_comentario(name):
+    name = _safe_name(name)
+    body = request.json or {}
+    com = body.get('comentario', '')
+    if not isinstance(com, str):
+        abort(400, 'comentario debe ser texto')
+    com = com.strip()
+    if len(com) > 2000:
+        abort(400, 'comentario excede el largo máximo')
+    meta_path = os.path.join(SESSIONS_DIR, name + '_meta.json')
+    meta = {}
+    if os.path.exists(meta_path):
+        with open(meta_path) as f:
+            meta = json.load(f)
+    meta['comentario'] = com
+    with open(meta_path, 'w') as f:
+        json.dump(meta, f, indent=2, ensure_ascii=False)
+    return jsonify({'ok': True, 'comentario': com})
 
 # F2.5: foto del ensayo
 @app.route('/api/sessions/<name>/foto', methods=['POST'])
