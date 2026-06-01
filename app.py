@@ -10,6 +10,7 @@ import msal
 from dotenv import load_dotenv
 from core.registry import load_registry
 from core.recorder import save_session as _recorder_save
+from core import graph_storage as _graph
 try:
     import markdown as _md
     _HAS_MD = True
@@ -325,6 +326,32 @@ def _save_session(buf, meta=None):
     """Delega en core.recorder. Firma conservada para los callers existentes."""
     return _recorder_save(SESSIONS_DIR, buf, meta)
 
+def _mark_upload_status(name, ok, detail):
+    """Escribe estado de subida en el _meta.json de la sesión. No lanza."""
+    try:
+        meta_path = os.path.join(SESSIONS_DIR, name + '_meta.json')
+        meta = {}
+        if os.path.exists(meta_path):
+            with open(meta_path) as f:
+                meta = json.load(f)
+        meta['uploaded'] = bool(ok)
+        meta['upload_detail'] = detail
+        meta['upload_ts'] = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+        with open(meta_path, 'w') as f:
+            json.dump(meta, f, indent=2, ensure_ascii=False)
+    except Exception:
+        pass
+
+def _upload_async(name):
+    """Sube una sesión a SharePoint en background. Nunca rompe el guardado local."""
+    def _job():
+        ok, detail = _graph.upload_session(SESSIONS_DIR, name)
+        _mark_upload_status(name, ok, detail)
+        socketio.emit('upload', {'name': name, 'ok': ok, 'detail': detail})
+    if not _graph.is_configured():
+        return  # sin config Graph: no-op silencioso, local sigue siendo la verdad
+    threading.Thread(target=_job, daemon=True).start()
+
 # ── Fase A: helpers de la máquina de estados ────────────────────────────────────
 def _start_grabando(data):
     """Pasa a GRABANDO: fija tara de tiempo/distancia y resetea picos.
@@ -400,6 +427,8 @@ def _finalize_pending(reason='manual'):
         cfg_now = load_filter()
         _ensayo_state = 'ARMADO' if cfg_now.get('auto_record') else 'IDLE'
     name = _save_session(buf, meta) if buf else None
+    if name:
+        _upload_async(name)
     socketio.emit('ensayo', {
         'state':  _ensayo_state,
         'reason': 'guardado',
@@ -956,6 +985,19 @@ def download_zip():
                      as_attachment=True, download_name='ensayos.zip')
 
 # T5: toggle starred
+# E#1: re-subir manualmente una sesión a SharePoint (botón en pestaña Ensayos)
+@app.route('/api/sessions/<name>/upload', methods=['POST'])
+@login_required
+def reupload_session(name):
+    name = _safe_name(name)
+    if not os.path.exists(os.path.join(SESSIONS_DIR, name + '_meta.json')):
+        abort(404, 'Sesión no encontrada')
+    if not _graph.is_configured():
+        return jsonify({'ok': False, 'detail': 'Graph no configurado'}), 503
+    ok, detail = _graph.upload_session(SESSIONS_DIR, name)
+    _mark_upload_status(name, ok, detail)
+    return jsonify({'ok': ok, 'detail': detail})
+
 @app.route('/api/sessions/<name>/star', methods=['POST'])
 @login_required
 def toggle_star(name):

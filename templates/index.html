@@ -1343,6 +1343,10 @@ function loadSessions(){
       const importante = meta.importante;
       const impIcon = importante ? '🔒' : '🔓';
       const comentario = meta.comentario || '';
+      const uploaded = meta.uploaded === true;
+      const upTitle = uploaded ? ('Subido a SharePoint' + (meta.upload_ts?' ('+meta.upload_ts+')':'')) : (meta.upload_detail ? 'No subido: '+escapeHtml(meta.upload_detail) : 'No subido. Click para subir');
+      const upIcon = uploaded ? '☁︎' : '☁';
+      const upColor = uploaded ? '#16a34a' : 'var(--muted)';
       const comLine = comentario ? `<div class="text-muted" style="font-size:0.68rem;white-space:pre-wrap;word-break:break-word">💬 ${escapeHtml(comentario)}</div>` : '';
       const materialLine = meta.material ? `<span class="text-muted" style="font-size:0.68rem">${escapeHtml(meta.material)}${meta.dimensiones?' · '+escapeHtml(meta.dimensiones):''}</span>` : '';
       const opLine = meta.operador ? `<span class="text-muted" style="font-size:0.68rem"> · ${escapeHtml(meta.operador)}</span>` : '';
@@ -1359,6 +1363,7 @@ function loadSessions(){
             <button class="btn btn-sm p-0" style="font-size:0.85rem;color:${starColor};line-height:1" onclick="event.stopPropagation();toggleStar('${s.name}')" title="${starred?'Quitar destacado':'Destacar'}">${starIcon}</button>
             <button class="btn btn-sm p-0 ms-1" style="font-size:0.8rem;line-height:1" onclick="event.stopPropagation();toggleImportante('${s.name}')" title="${importante?'Importante (no borrable). Click para desmarcar':'Marcar como importante'}">${impIcon}</button>
             <button class="btn btn-sm p-0 ms-1" style="font-size:0.8rem;line-height:1" onclick="event.stopPropagation();editComentario('${s.name}')" title="Comentario">💬</button>
+            <button class="btn btn-sm p-0 ms-1" style="font-size:0.8rem;line-height:1;color:${upColor}" onclick="event.stopPropagation();reupload('${s.name}')" title="${upTitle}">${upIcon}</button>
             <button class="btn btn-sm p-0 ms-1" style="font-size:0.65rem;color:var(--muted)" onclick="event.stopPropagation();showSesionDetail('${s.name}')" title="Ver metadata">ℹ</button>
             <button class="btn btn-sm p-0 ms-1" style="font-size:0.75rem;line-height:1;color:${importante?'var(--muted)':'#dc3545'}" onclick="event.stopPropagation();deleteSession('${s.name}',${importante?'true':'false'})" title="${importante?'No se puede borrar (importante)':'Eliminar'}" ${importante?'disabled':''}>🗑</button>
           </div>
@@ -1406,6 +1411,16 @@ function toggleImportante(name){
   fetch(`/api/sessions/${name}/importante`,{method:'POST'}).then(r=>r.json()).then(d=>{
     if(d.ok) loadSessions();
   });
+}
+
+function reupload(name){
+  fetch(`/api/sessions/${name}/upload`,{method:'POST'})
+    .then(r=>r.json())
+    .then(d=>{
+      alert(d.ok ? ('Subido: '+(d.detail||'ok')) : ('No se pudo subir: '+(d.detail||'error')));
+      loadSessions();
+    })
+    .catch(()=>alert('Error de red al subir'));
 }
 
 function editComentario(name){
