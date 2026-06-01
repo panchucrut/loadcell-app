@@ -91,6 +91,14 @@
       <div class="row g-3">
         <div class="col-xl-9">
           <div class="card p-3 mb-3">
+            <!-- #6: bloque del ensayo activo ARRIBA, con selector de tipo destacado -->
+            <div id="ensayoChip" class="mb-2 d-flex align-items-center flex-wrap gap-2">
+              <span class="text-muted" style="font-size:0.8rem">Tipo de Ensayo:</span>
+              <select id="monitorTipoSel" class="form-select form-select-sm fw-semibold" style="width:auto;font-size:0.95rem"
+                      onchange="setTipoFromMonitor(this.value)" title="Seleccionar tipo de ensayo"></select>
+              <span id="ensayoChipTipo" class="tipo-badge" style="font-size:1rem;padding:3px 12px"></span>
+              <span id="ensayoChipTitulo" class="text-muted ms-1" style="font-size:0.85rem"></span>
+            </div>
             <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
               <div class="d-flex gap-2 align-items-center">
                 <button id="pauseBtn" class="btn btn-sm btn-outline-warning" onclick="togglePause()">⏸ Pausar</button>
@@ -108,15 +116,6 @@
                 </select>
                 <button class="btn btn-sm btn-outline-secondary" onclick="clearChart()">🗑</button>
               </div>
-            </div>
-            <!-- F2: chip del ensayo activo -->
-            <div id="ensayoChip" class="mb-2 d-none d-flex align-items-center flex-wrap gap-2">
-              <span class="text-muted" style="font-size:0.75rem">Ensayo activo: </span>
-              <span id="ensayoChipTipo" class="tipo-badge"></span>
-              <span id="ensayoChipTitulo" class="text-muted ms-1" style="font-size:0.75rem"></span>
-              <!-- Fase C: selector rápido de tipo desde Monitor -->
-              <select id="monitorTipoSel" class="form-select form-select-sm" style="width:auto;font-size:0.72rem"
-                      onchange="setTipoFromMonitor(this.value)" title="Cambiar tipo de ensayo"></select>
             </div>
             <!-- Fase B: banner de descarte con ventana de gracia -->
             <div id="discardBanner" class="alert alert-warning d-none d-flex align-items-center justify-content-between py-2 px-3 mb-2">
