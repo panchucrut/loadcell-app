@@ -238,9 +238,14 @@
             <!-- T9: multi-select action bar -->
             <div id="selBar" class="d-none mb-2 d-flex gap-1 align-items-center flex-wrap">
               <span id="selCount" class="text-muted" style="font-size:0.75rem">0 seleccionados</span>
-              <button class="btn btn-sm btn-outline-primary py-0 px-2 ms-auto" onclick="downloadZip()">⬇ ZIP</button>
-              <button class="btn btn-sm btn-outline-secondary py-0 px-2" onclick="selectAllSessions()">Todos</button>
-              <button class="btn btn-sm btn-outline-secondary py-0 px-2" onclick="clearSelMode()">✕</button>
+              <div class="ms-auto d-flex gap-1 flex-wrap">
+                <button class="btn btn-sm btn-outline-secondary py-0 px-2" onclick="selectAllSessions()" title="Seleccionar todos">Todos</button>
+                <button class="btn btn-sm btn-outline-warning py-0 px-2" onclick="bulkStar()" title="Destacar seleccionados">★</button>
+                <button class="btn btn-sm btn-outline-success py-0 px-2" onclick="bulkUpload()" title="Subir seleccionados a SharePoint">☁</button>
+                <button class="btn btn-sm btn-outline-primary py-0 px-2" onclick="downloadZip()" title="Descargar ZIP">⬇ ZIP</button>
+                <button class="btn btn-sm btn-outline-danger py-0 px-2" onclick="bulkDelete()" title="Eliminar seleccionados">🗑</button>
+                <button class="btn btn-sm btn-outline-secondary py-0 px-2" onclick="clearSelMode()" title="Cerrar selección">✕</button>
+              </div>
             </div>
             <div id="sessionList" style="max-height:65vh;overflow-y:auto"></div>
             <div id="compareBar" class="mt-2 d-none d-flex gap-2">
@@ -656,16 +661,39 @@
 </div>
 
 <!-- ══════════════ MODAL DETALLE SESIÓN (F2.4) ════════════════════════════════ -->
-<div class="modal fade" id="sesionDetailModal" tabindex="-1">
+<div class="modal fade" id="editMetaModal" tabindex="-1">
   <div class="modal-dialog modal-dialog-centered">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title">Detalle del ensayo</h5>
+        <h5 class="modal-title">✏️ Editar ensayo <small class="text-muted ms-2" id="editMetaTitle" style="font-size:0.7rem"></small></h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
-      <div class="modal-body" id="sesionDetailBody"></div>
+      <div class="modal-body">
+        <input type="hidden" id="editMetaName">
+        <div class="mb-2">
+          <label class="form-label mb-0 text-muted" style="font-size:0.75rem">Material</label>
+          <input type="text" class="form-control form-control-sm" id="emMaterial" maxlength="80">
+        </div>
+        <div class="mb-2">
+          <label class="form-label mb-0 text-muted" style="font-size:0.75rem">Dimensiones</label>
+          <input type="text" class="form-control form-control-sm" id="emDimensiones" maxlength="40">
+        </div>
+        <div class="mb-2">
+          <label class="form-label mb-0 text-muted" style="font-size:0.75rem">Operador</label>
+          <input type="text" class="form-control form-control-sm" id="emOperador" maxlength="60">
+        </div>
+        <div class="mb-2">
+          <label class="form-label mb-0 text-muted" style="font-size:0.75rem">Notas</label>
+          <textarea class="form-control form-control-sm" id="emNotas" rows="2" maxlength="2000"></textarea>
+        </div>
+        <div class="mb-1">
+          <label class="form-label mb-0 text-muted" style="font-size:0.75rem">Comentario</label>
+          <textarea class="form-control form-control-sm" id="emComentario" rows="3" maxlength="2000"></textarea>
+        </div>
+      </div>
       <div class="modal-footer">
-        <button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cerrar</button>
+        <button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-primary btn-sm" onclick="saveSessionMeta()">Guardar</button>
       </div>
     </div>
   </div>
@@ -1328,8 +1356,13 @@ function loadSessions(){
   fetch('/api/sessions').then(r=>r.json()).then(list=>{
     const el=document.getElementById('sessionList');
     if(!list.length){el.innerHTML='<div class="text-muted small">Sin sesiones guardadas</div>';return;}
-    // Starred primero
-    list.sort((a,b) => (b.meta?.starred?1:0) - (a.meta?.starred?1:0));
+    // Orden: destacados primero; dentro de cada grupo, más recientes arriba (timestamp desc)
+    list.sort((a,b) => {
+      const sa=(b.meta?.starred?1:0)-(a.meta?.starred?1:0);
+      if(sa) return sa;
+      const ta=(b.meta?.timestamp||b.name), tb=(a.meta?.timestamp||a.name);
+      return ta < tb ? -1 : ta > tb ? 1 : 0;
+    });
     el.innerHTML=list.map(s=>{
       const meta = s.meta||{};
       const tipo  = meta.tipo||'';
@@ -1342,63 +1375,89 @@ function loadSessions(){
       const starColor = starred ? '#f59e0b' : 'var(--muted)';
       const importante = meta.importante;
       const impIcon = importante ? '🔒' : '🔓';
+      const impColor = importante ? '#dc3545' : '#9ca3af';
       const comentario = meta.comentario || '';
       const uploaded = meta.uploaded === true;
       const upTitle = uploaded ? ('Subido a SharePoint' + (meta.upload_ts?' ('+meta.upload_ts+')':'')) : (meta.upload_detail ? 'No subido: '+escapeHtml(meta.upload_detail) : 'No subido. Click para subir');
       const upIcon = uploaded ? '☁︎' : '☁';
       const upColor = uploaded ? '#16a34a' : 'var(--muted)';
-      const comLine = comentario ? `<div class="text-muted" style="font-size:0.68rem;white-space:pre-wrap;word-break:break-word">💬 ${escapeHtml(comentario)}</div>` : '';
+      const fechaHora = fmtTimestamp(meta.timestamp);
+      const fechaLine = fechaHora ? `<span class="text-muted" style="font-size:0.7rem">🕘 ${fechaHora}</span>` : '';
+      const comLine = comentario ? `<div class="mt-1 p-2" style="font-size:0.72rem;white-space:pre-wrap;word-break:break-word;background:#f6f8fb;border-radius:4px;line-height:1.35">💬 ${escapeHtml(comentario)}</div>` : '';
       const materialLine = meta.material ? `<span class="text-muted" style="font-size:0.68rem">${escapeHtml(meta.material)}${meta.dimensiones?' · '+escapeHtml(meta.dimensiones):''}</span>` : '';
       const opLine = meta.operador ? `<span class="text-muted" style="font-size:0.68rem"> · ${escapeHtml(meta.operador)}</span>` : '';
       const chk = _selMode ? `<input type="checkbox" class="form-check-input me-2 sel-chk" data-name="${s.name}" ${_selSet.has(s.name)?'checked':''} onclick="event.stopPropagation();toggleSelItem('${s.name}',this.checked)" style="cursor:pointer">` : '';
       const clickFn = _selMode ? `toggleSelItem('${s.name}',!document.querySelector('.sel-chk[data-name=\\'${s.name}\\']')?.checked)` : `selectSession('${s.name}')`;
-      return `<div class="session-item ${sel}" onclick="${clickFn}">
+      return `<div class="session-item ${sel}" style="padding:8px 10px" onclick="${clickFn}">
         <div class="d-flex justify-content-between align-items-start">
-          <div class="d-flex align-items-center text-truncate flex-grow-1">
+          <div class="d-flex align-items-center flex-grow-1" style="min-width:0">
             ${chk}
-            ${tipoLabel ? `<span class="${tipoCss}">${tipoLabel}</span> ` : ''}
-            <span style="font-size:0.78rem">${label}</span>
+            <div style="min-width:0">
+              <div class="d-flex align-items-center" style="gap:6px;flex-wrap:wrap">
+                ${tipoLabel ? `<span class="${tipoCss}">${tipoLabel}</span>` : ''}
+                <span style="font-size:0.82rem;font-weight:500">${label}</span>
+              </div>
+              <div class="mt-1">${fechaLine}</div>
+            </div>
           </div>
-          <div class="d-flex gap-1">
-            <button class="btn btn-sm p-0" style="font-size:0.85rem;color:${starColor};line-height:1" onclick="event.stopPropagation();toggleStar('${s.name}')" title="${starred?'Quitar destacado':'Destacar'}">${starIcon}</button>
-            <button class="btn btn-sm p-0 ms-1" style="font-size:0.8rem;line-height:1" onclick="event.stopPropagation();toggleImportante('${s.name}')" title="${importante?'Importante (no borrable). Click para desmarcar':'Marcar como importante'}">${impIcon}</button>
-            <button class="btn btn-sm p-0 ms-1" style="font-size:0.8rem;line-height:1" onclick="event.stopPropagation();editComentario('${s.name}')" title="Comentario">💬</button>
-            <button class="btn btn-sm p-0 ms-1" style="font-size:0.8rem;line-height:1;color:${upColor}" onclick="event.stopPropagation();reupload('${s.name}')" title="${upTitle}">${upIcon}</button>
-            <button class="btn btn-sm p-0 ms-1" style="font-size:0.65rem;color:var(--muted)" onclick="event.stopPropagation();showSesionDetail('${s.name}')" title="Ver metadata">ℹ</button>
-            <button class="btn btn-sm p-0 ms-1" style="font-size:0.75rem;line-height:1;color:${importante?'var(--muted)':'#dc3545'}" onclick="event.stopPropagation();deleteSession('${s.name}',${importante?'true':'false'})" title="${importante?'No se puede borrar (importante)':'Eliminar'}" ${importante?'disabled':''}>🗑</button>
+          <div class="d-flex gap-1 flex-shrink-0">
+            <button class="btn btn-sm p-0" style="font-size:0.9rem;color:${starColor};line-height:1" onclick="event.stopPropagation();toggleStar('${s.name}')" title="${starred?'Quitar destacado':'Destacar'}">${starIcon}</button>
+            <button class="btn btn-sm p-0 ms-1" style="font-size:0.85rem;line-height:1;color:${impColor}" onclick="event.stopPropagation();toggleImportante('${s.name}')" title="${importante?'Importante (no borrable). Click para desmarcar':'Marcar como importante (bloquea borrado)'}">${impIcon}</button>
+            <button class="btn btn-sm p-0 ms-1" style="font-size:0.85rem;line-height:1;color:${upColor}" onclick="event.stopPropagation();reupload('${s.name}')" title="${upTitle}">${upIcon}</button>
+            <button class="btn btn-sm p-0 ms-1" style="font-size:0.8rem;line-height:1;color:var(--accent)" onclick="event.stopPropagation();editSessionMeta('${s.name}')" title="Editar datos del ensayo">✏️</button>
           </div>
         </div>
-        <div>${materialLine}${opLine}</div>
+        ${(materialLine||opLine)?`<div class="mt-1">${materialLine}${opLine}</div>`:''}
         ${comLine}
-        <div class="text-muted" style="font-size:0.68rem">${s.rows} registros</div>
+        <div class="text-muted mt-1" style="font-size:0.66rem">${s.rows} registros</div>
       </div>`;
     }).join('');
   });
 }
 
-function showSesionDetail(name){
+// Formatea 'YYYY-MM-DD_HH-MM-SS' → 'DD/MM/YYYY HH:MM'
+function fmtTimestamp(ts){
+  if(!ts || typeof ts !== 'string') return '';
+  const m = ts.match(/^(\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})-(\d{2})$/);
+  if(!m) return escapeHtml(ts);
+  return `${m[3]}/${m[2]}/${m[1]} ${m[4]}:${m[5]}`;
+}
+
+// Backlog #2: editar metadata del ensayo (reemplaza el modal de solo lectura)
+function editSessionMeta(name){
   fetch('/api/sessions').then(r=>r.json()).then(list=>{
     const s = list.find(x=>x.name===name);
     if(!s) return;
     const m = s.meta||{};
-    const rows = [
-      ['Tipo', TIPO_LABELS[m.tipo]||m.tipo||'—'],
-      ['Material', m.material||'—'],
-      ['Dimensiones', m.dimensiones||'—'],
-      ['Operador', m.operador||'—'],
-      ['Notas', m.notas||'—'],
-      ['Comentario', m.comentario||'—'],
-      ['Importante', m.importante?'Sí (no borrable)':'No'],
-      ['Archivo', name],
-      ['Registros', s.rows],
-      ['Timestamp', m.timestamp||'—'],
-    ];
-    document.getElementById('sesionDetailBody').innerHTML =
-      `<table class="table table-sm table-bordered mb-0">
-        ${rows.map(([k,v])=>`<tr><td class="text-muted fw-semibold" style="width:40%">${escapeHtml(k)}</td><td>${escapeHtml(v)}</td></tr>`).join('')}
-      </table>`;
-    new bootstrap.Modal(document.getElementById('sesionDetailModal')).show();
+    document.getElementById('editMetaName').value = name;
+    document.getElementById('editMetaTitle').textContent = name;
+    document.getElementById('emMaterial').value    = m.material||'';
+    document.getElementById('emDimensiones').value = m.dimensiones||'';
+    document.getElementById('emOperador').value    = m.operador||'';
+    document.getElementById('emNotas').value       = m.notas||'';
+    document.getElementById('emComentario').value  = m.comentario||'';
+    new bootstrap.Modal(document.getElementById('editMetaModal')).show();
   });
+}
+
+function saveSessionMeta(){
+  const name = document.getElementById('editMetaName').value;
+  const body = {
+    material:    document.getElementById('emMaterial').value,
+    dimensiones: document.getElementById('emDimensiones').value,
+    operador:    document.getElementById('emOperador').value,
+    notas:       document.getElementById('emNotas').value,
+    comentario:  document.getElementById('emComentario').value,
+  };
+  fetch(`/api/sessions/${name}/meta`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+    .then(r=>{if(!r.ok)throw 0;return r.json();})
+    .then(d=>{
+      if(d.ok){
+        bootstrap.Modal.getInstance(document.getElementById('editMetaModal')).hide();
+        loadSessions();
+      }
+    })
+    .catch(()=>alert('No se pudo guardar'));
 }
 
 function toggleStar(name){
@@ -2030,6 +2089,41 @@ function downloadZip(){
     a.download = `ensayos_${new Date().toISOString().slice(0,10)}.zip`;
     a.click();
     URL.revokeObjectURL(a.href);
+  });
+}
+
+function bulkStar(){
+  if(!_selSet.size){ alert('Selecciona al menos un ensayo'); return; }
+  const names=[..._selSet];
+  Promise.all(names.map(n=>fetch(`/api/sessions/${n}/star`,{method:'POST'}).then(r=>r.json()).catch(()=>null)))
+    .then(()=>loadSessions());
+}
+
+function bulkUpload(){
+  if(!_selSet.size){ alert('Selecciona al menos un ensayo'); return; }
+  const names=[..._selSet];
+  Promise.all(names.map(n=>fetch(`/api/sessions/${n}/upload`,{method:'POST'}).then(r=>r.json().catch(()=>({ok:false}))).catch(()=>({ok:false}))))
+    .then(res=>{
+      const ok=res.filter(d=>d&&d.ok).length;
+      alert(`Subidos: ${ok}/${names.length}`);
+      loadSessions();
+    });
+}
+
+function bulkDelete(){
+  if(!_selSet.size){ alert('Selecciona al menos un ensayo'); return; }
+  const names=[..._selSet];
+  if(!confirm(`¿Eliminar ${names.length} ensayo(s)? Los marcados como importantes (🔒) se omiten. Esta acción no se puede deshacer.`)) return;
+  Promise.all(names.map(n=>
+    fetch(`/api/sessions/${n}`,{method:'DELETE'})
+      .then(r=>r.json().then(d=>({ok:r.ok,d})).catch(()=>({ok:false,d:{}})))
+      .catch(()=>({ok:false,d:{}}))
+  )).then(res=>{
+    const del=res.filter(x=>x.ok&&x.d&&x.d.ok).length;
+    const skip=names.length-del;
+    if(skip) alert(`Eliminados: ${del}. Omitidos (importantes o error): ${skip}.`);
+    _selSet.clear();
+    clearSelMode();
   });
 }
 

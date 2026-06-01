@@ -1049,6 +1049,33 @@ def set_comentario(name):
         json.dump(meta, f, indent=2, ensure_ascii=False)
     return jsonify({'ok': True, 'comentario': com})
 
+# Backlog #2: editar metadata de un ensayo guardado (reemplaza el modal de detalle)
+@app.route('/api/sessions/<name>/meta', methods=['POST'])
+@login_required
+def edit_session_meta(name):
+    name = _safe_name(name)
+    meta_path = os.path.join(SESSIONS_DIR, name + '_meta.json')
+    if not os.path.exists(meta_path):
+        abort(404, 'Sesión no encontrada')
+    body = request.json or {}
+    _MAX_LEN = {'material': 80, 'dimensiones': 40, 'operador': 60,
+                'notas': 2000, 'comentario': 2000}
+    with open(meta_path) as f:
+        meta = json.load(f)
+    for k, maxlen in _MAX_LEN.items():
+        if k not in body:
+            continue
+        v = body.get(k, '')
+        if not isinstance(v, str):
+            abort(400, f'{k} debe ser texto')
+        v = v.strip()
+        if len(v) > maxlen:
+            abort(400, f'{k} excede el largo máximo')
+        meta[k] = v
+    with open(meta_path, 'w') as f:
+        json.dump(meta, f, indent=2, ensure_ascii=False)
+    return jsonify({'ok': True, 'meta': meta})
+
 # F2.5: foto del ensayo
 @app.route('/api/sessions/<name>/foto', methods=['POST'])
 @login_required
