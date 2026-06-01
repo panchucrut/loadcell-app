@@ -79,6 +79,7 @@
 <div class="container-fluid py-2">
   <ul class="nav nav-tabs mb-3" id="mainTabs">
     <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#tabMonitor">Monitor</a></li>
+    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tabEnsayos" id="tabEnsayosLink">Ensayos</a></li>
     <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tabAnalisis" id="tabAnalisisLink">Análisis</a></li>
     <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tabReferencias" id="tabRefLink">Referencias</a></li>
     <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tabConfig">Configuración</a></li>
@@ -215,11 +216,17 @@
               Calibrar sistema
             </button>
           </div>
+        </div>
+      </div>
+    </div>
 
-          <!-- Historial F2.4 -->
-          <div class="card p-3 flex-grow-1">
+    <!-- ═══════════════════════════ ENSAYOS ════════════════════════════════ -->
+    <div class="tab-pane fade" id="tabEnsayos">
+      <div class="row g-3">
+        <div class="col-12">
+          <div class="card p-3">
             <div class="d-flex justify-content-between align-items-center mb-2">
-              <span class="fw-semibold">Historial</span>
+              <span class="fw-semibold">Ensayos guardados</span>
               <div class="d-flex gap-1">
                 <button class="btn btn-sm btn-outline-secondary py-0 px-2" onclick="loadSessions()">↺</button>
                 <button class="btn btn-sm btn-outline-secondary py-0 px-2" id="btnSelMode" onclick="toggleSelMode()" title="Selección múltiple">☑</button>
@@ -232,9 +239,9 @@
               <button class="btn btn-sm btn-outline-secondary py-0 px-2" onclick="selectAllSessions()">Todos</button>
               <button class="btn btn-sm btn-outline-secondary py-0 px-2" onclick="clearSelMode()">✕</button>
             </div>
-            <div id="sessionList" style="max-height:280px;overflow-y:auto"></div>
+            <div id="sessionList" style="max-height:65vh;overflow-y:auto"></div>
             <div id="compareBar" class="mt-2 d-none d-flex gap-2">
-              <button class="btn btn-sm btn-outline-primary flex-fill" onclick="doCompare()">Comparar</button>
+              <button class="btn btn-sm btn-outline-primary" onclick="doCompare()">Comparar</button>
               <button class="btn btn-sm btn-outline-secondary" onclick="clearCompare()" title="Quitar">✕</button>
             </div>
           </div>
