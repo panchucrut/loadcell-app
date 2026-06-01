@@ -715,7 +715,7 @@ def post_ensayo_tipos():
     label = body.get('label', '').strip()
     if not key or not label:
         abort(400, 'key y label requeridos')
-    if not re.match(r'^[a-z0-9_]{1,40}$', key):
+    if not _re.match(r'^[a-z0-9_]{1,40}$', key):
         abort(400, 'key solo letras minúsculas, números y _')
     ENSAYO_TIPOS[key] = label
     _save_ensayo_tipos(ENSAYO_TIPOS)
