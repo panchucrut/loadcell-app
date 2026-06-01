@@ -697,7 +697,20 @@ def get_ensayo_meta():
 def post_ensayo_meta():
     global _ensayo_meta
     body = request.json or {}
-    _ensayo_meta.update({k: v for k, v in body.items() if k in _ensayo_meta})
+    # SEC-012: validar tipo y longitud por campo (defensa en profundidad junto al escape del front)
+    _MAX_LEN = {'tipo': 40, 'material': 80, 'dimensiones': 40,
+                'operador': 60, 'notas': 2000, 'titulo': 120}
+    clean = {}
+    for k, v in body.items():
+        if k not in _ensayo_meta:
+            continue
+        if not isinstance(v, str):
+            abort(400, f'{k} debe ser texto')
+        v = v.strip()
+        if len(v) > _MAX_LEN.get(k, 200):
+            abort(400, f'{k} excede el largo máximo')
+        clean[k] = v
+    _ensayo_meta.update(clean)
     return jsonify({'ok': True, 'meta': _ensayo_meta})
 
 # T7: gestión de tipos de ensayo
@@ -715,6 +728,8 @@ def post_ensayo_tipos():
     label = body.get('label', '').strip()
     if not key or not label:
         abort(400, 'key y label requeridos')
+    if len(label) > 60:
+        abort(400, 'label excede el largo máximo')
     if not _re.match(r'^[a-z0-9_]{1,40}$', key):
         abort(400, 'key solo letras minúsculas, números y _')
     ENSAYO_TIPOS[key] = label

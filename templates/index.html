@@ -643,6 +643,13 @@
 <script src="{{ url_for('static', filename='vendor/bootstrap.bundle.min.js') }}" integrity="sha384-C6RzsynM9kWDrMNeT87bh95OGNyZPhcTNXj1NW7RuBCsyN/o0jlpcV8Qyq46cDfL" crossorigin="anonymous"></script>
 <script>
 console.log('[SP] script start');
+// SEC-009: escapar todo dato de usuario antes de inyectarlo con innerHTML
+function escapeHtml(s){
+  if(s===null||s===undefined) return '';
+  return String(s).replace(/[&<>"']/g, function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+  });
+}
 // ── config declarativa inyectada desde /api/sensors (Registry.frontend_config) ──
 const SENSORS = {{ sensors_config | tojson }};
 const _PALETTE = ['#e6194b','#3cb44b','#4363d8','#f58231','#911eb4','#42d4f4','#f032e6','#bfef45','#a9a9a9'];
@@ -1116,8 +1123,8 @@ function renderTiposList(tipos){
   el.innerHTML = entries.map(([k,v])=>`
     <div class="d-flex align-items-center justify-content-between mb-1">
       <div>
-        <span class="badge bg-secondary me-1" style="font-size:0.65rem">${k}</span>
-        <span style="font-size:0.8rem">${v}</span>
+        <span class="badge bg-secondary me-1" style="font-size:0.65rem">${escapeHtml(k)}</span>
+        <span style="font-size:0.8rem">${escapeHtml(v)}</span>
       </div>
       <button class="btn btn-sm btn-outline-danger py-0 px-1" style="font-size:0.7rem"
               onclick="deleteTipo('${k}')">✕</button>
@@ -1301,8 +1308,8 @@ function loadSessions(){
       const starred = meta.starred;
       const starIcon = starred ? '★' : '☆';
       const starColor = starred ? '#f59e0b' : 'var(--muted)';
-      const materialLine = meta.material ? `<span class="text-muted" style="font-size:0.68rem">${meta.material}${meta.dimensiones?' · '+meta.dimensiones:''}</span>` : '';
-      const opLine = meta.operador ? `<span class="text-muted" style="font-size:0.68rem"> · ${meta.operador}</span>` : '';
+      const materialLine = meta.material ? `<span class="text-muted" style="font-size:0.68rem">${escapeHtml(meta.material)}${meta.dimensiones?' · '+escapeHtml(meta.dimensiones):''}</span>` : '';
+      const opLine = meta.operador ? `<span class="text-muted" style="font-size:0.68rem"> · ${escapeHtml(meta.operador)}</span>` : '';
       const chk = _selMode ? `<input type="checkbox" class="form-check-input me-2 sel-chk" data-name="${s.name}" ${_selSet.has(s.name)?'checked':''} onclick="event.stopPropagation();toggleSelItem('${s.name}',this.checked)" style="cursor:pointer">` : '';
       const clickFn = _selMode ? `toggleSelItem('${s.name}',!document.querySelector('.sel-chk[data-name=\\'${s.name}\\']')?.checked)` : `selectSession('${s.name}')`;
       return `<div class="session-item ${sel}" onclick="${clickFn}">
@@ -1341,7 +1348,7 @@ function showSesionDetail(name){
     ];
     document.getElementById('sesionDetailBody').innerHTML =
       `<table class="table table-sm table-bordered mb-0">
-        ${rows.map(([k,v])=>`<tr><td class="text-muted fw-semibold" style="width:40%">${k}</td><td>${v}</td></tr>`).join('')}
+        ${rows.map(([k,v])=>`<tr><td class="text-muted fw-semibold" style="width:40%">${escapeHtml(k)}</td><td>${escapeHtml(v)}</td></tr>`).join('')}
       </table>`;
     new bootstrap.Modal(document.getElementById('sesionDetailModal')).show();
   });
@@ -1623,7 +1630,7 @@ function loadAnalisisList() {
     const tiposPresentes = [...new Set(list.map(s => (s.meta||{}).tipo).filter(Boolean))];
     const selTipo = document.getElementById('anFiltroTipo');
     selTipo.innerHTML = '<option value="">Todos los tipos</option>' +
-      tiposPresentes.map(t => `<option value="${t}" ${t===_anFilterTipo?'selected':''}>${TIPO_LABELS[t]||t}</option>`).join('');
+      tiposPresentes.map(t => `<option value="${escapeHtml(t)}" ${t===_anFilterTipo?'selected':''}>${escapeHtml(TIPO_LABELS[t]||t)}</option>`).join('');
     // aplicar filtros
     const filtered = list.filter(s => {
       const tipo = (s.meta||{}).tipo || '';
@@ -1640,13 +1647,13 @@ function loadAnalisisList() {
       const sel   = _anSelected.has(s.name);
       const color = AN_COLORS[Array.from(_anSelected).indexOf(s.name) % AN_COLORS.length];
       const dot   = sel ? `<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${color};margin-right:4px"></span>` : '';
-      const tipoBadge = tipo ? `<span class="tipo-badge tipo-${tipo}" style="font-size:0.6rem">${TIPO_LABELS[tipo]||tipo}</span> ` : '';
+      const tipoBadge = tipo ? `<span class="tipo-badge tipo-${tipo}" style="font-size:0.6rem">${escapeHtml(TIPO_LABELS[tipo]||tipo)}</span> ` : '';
       return `<div class="session-item${sel?' selected':''}" onclick="toggleAnalisisItem('${s.name}')">
         <div class="d-flex align-items-center gap-1">
           ${dot}${tipoBadge}
           <span class="text-truncate" style="font-size:0.78rem">${label}</span>
         </div>
-        ${meta.material ? `<div class="text-muted" style="font-size:0.68rem">${meta.material}${meta.dimensiones?' · '+meta.dimensiones:''}</div>` : ''}
+        ${meta.material ? `<div class="text-muted" style="font-size:0.68rem">${escapeHtml(meta.material)}${meta.dimensiones?' · '+escapeHtml(meta.dimensiones):''}</div>` : ''}
         <div class="text-muted" style="font-size:0.68rem">${s.rows} reg</div>
       </div>`;
     }).join('');
