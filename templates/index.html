@@ -64,7 +64,10 @@
 <body>
 
 <nav class="navbar navbar-light px-3 py-2">
-  <span class="navbar-brand fw-bold mb-0 text-primary">⚙ Sensores Prensa</span>
+  <div class="d-flex align-items-center gap-3">
+    <span class="navbar-brand fw-bold mb-0 text-primary">⚙ Sensores Prensa</span>
+    <button class="btn btn-danger fw-bold px-3" style="font-size:1rem" onclick="openEnsayoScreen()" title="Abrir pantalla grande para ensayo">🖥 Abrir pantalla para ensayo</button>
+  </div>
   <div class="d-flex align-items-center gap-2 flex-wrap">
     <a class="btn btn-sm btn-outline-secondary" href="/manual" target="_blank">📖 Manual</a>
     <select id="portSelect" class="form-select form-select-sm" style="width:220px">
@@ -961,6 +964,7 @@ socket.on('data', d=>{
   sBuf.push(distLive(d)); pBuf.push(d.pressure);
   if(tBuf.length>MAX_PTS){tBuf.shift();cBufs.forEach(b=>b.shift());sBuf.shift();pBuf.shift();}
   renderChart(); updateStats(d); checkAlarm(d);
+  _ensayoBroadcast(d);
 });
 socket.on('status', s=>{
   connected=s.connected;
@@ -2070,6 +2074,101 @@ function clearQRState(){
 
 // reset QR when modal closes
 document.getElementById('ensayoModal').addEventListener('hidden.bs.modal', clearQRState);
+
+// ── D#7: Pantalla grande para ensayo ─────────────────────────────────────────
+const _ENSAYO_CH = 'sp_ensayo_screen';
+let _ensayoBChan = null;
+function _ensayoBroadcast(d){
+  if(!_ensayoBChan){ try{ _ensayoBChan = new BroadcastChannel(_ENSAYO_CH); }catch(e){ return; } }
+  const vals = CELL_KEYS.map(k => d[k] || 0);
+  const total = vals.reduce((a,b)=>a+b,0);
+  const maxV = vals.length ? Math.max(...vals) : 0;
+  const maxI = vals.indexOf(maxV);
+  try{
+    _ensayoBChan.postMessage({
+      total, maxV, maxI,
+      dist: distLive(d),
+      press: d.pressure,
+      cells: vals,
+      cellLabels: CELL_LABELS,
+      alarm: _alarmTriggered,
+      ensayo: ((document.getElementById('ensayoChipTipo')?.textContent || '') + ' ' + (document.getElementById('ensayoChipTitulo')?.textContent || '')).trim(),
+    });
+  }catch(e){}
+}
+function openEnsayoScreen(){
+  const w = window.open('', 'sp_ensayo', 'width=1200,height=800');
+  if(!w){ alert('Permite ventanas emergentes para abrir la pantalla de ensayo.'); return; }
+  // SEC: documento autocontenido, sin datos de usuario en el HTML estático.
+  // Los datos llegan por BroadcastChannel y se insertan vía textContent (no innerHTML).
+  const doc = `<!doctype html><html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pantalla de ensayo</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;font-family:-apple-system,Segoe UI,Roboto,sans-serif;background:#0f172a;color:#f1f5f9;transition:background .15s}
+  body.alarm{background:#dc2626 !important;color:#fff}
+  body.alarm .card{background:rgba(0,0,0,.25) !important;border-color:rgba(255,255,255,.4) !important}
+  .wrap{height:100%;display:flex;flex-direction:column;padding:2vmin;gap:1.5vmin}
+  .head{display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:1vmin}
+  .ensayo{font-size:3vmin;font-weight:700;opacity:.85}
+  .alarmTxt{font-size:3vmin;font-weight:800;display:none}
+  body.alarm .alarmTxt{display:inline}
+  .grid{flex:1;display:grid;grid-template-columns:repeat(2,1fr);grid-template-rows:repeat(2,1fr);gap:1.5vmin}
+  .card{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.15);border-radius:1.5vmin;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:1vmin}
+  .lbl{font-size:2.4vmin;font-weight:600;opacity:.75;text-transform:uppercase;letter-spacing:.05em}
+  .val{font-size:11vmin;font-weight:800;line-height:1;font-variant-numeric:tabular-nums}
+  .unit{font-size:3vmin;font-weight:600;opacity:.7}
+  .sub{font-size:2vmin;opacity:.6;margin-top:.5vmin}
+  .cells{display:flex;flex-wrap:wrap;gap:1vmin;justify-content:center;padding:0 1vmin 1vmin}
+  .cell{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:1vmin;padding:.8vmin 1.4vmin;font-size:2.2vmin;font-variant-numeric:tabular-nums}
+  .cell b{font-weight:800}
+</style></head><body>
+<div class="wrap">
+  <div class="head">
+    <div class="ensayo" id="eEnsayo">—</div>
+    <div class="alarmTxt">🚨 ALERTA — LÍMITE ALCANZADO</div>
+  </div>
+  <div class="grid">
+    <div class="card"><div class="lbl">Carga total</div><div class="val" id="eTotal">0.0</div><div class="unit">kg</div></div>
+    <div class="card"><div class="lbl">Celda máx.</div><div class="val" id="eMax">0.0</div><div class="unit">kg</div><div class="sub" id="eMaxName">—</div></div>
+    <div class="card"><div class="lbl">Distancia</div><div class="val" id="eDist">0.0</div><div class="unit">mm</div></div>
+    <div class="card"><div class="lbl">Presión</div><div class="val" id="ePress">0.0</div><div class="unit">bar</div></div>
+  </div>
+  <div class="cells" id="eCells"></div>
+</div>
+<script>
+  var ch = new BroadcastChannel(${JSON.stringify(_ENSAYO_CH)});
+  var $ = function(id){ return document.getElementById(id); };
+  function f(n){ return (typeof n==='number' && isFinite(n)) ? n.toFixed(1) : '0.0'; }
+  ch.onmessage = function(ev){
+    var d = ev.data || {};
+    $('eTotal').textContent = f(d.total);
+    $('eMax').textContent = f(d.maxV);
+    $('eMaxName').textContent = (d.cellLabels && d.cellLabels[d.maxI]) ? d.cellLabels[d.maxI] : ('Celda ' + ((d.maxI||0)+1));
+    $('eDist').textContent = f(d.dist);
+    $('ePress').textContent = f(d.press);
+    $('eEnsayo').textContent = d.ensayo || '—';
+    document.body.classList.toggle('alarm', !!d.alarm);
+    var cont = $('eCells');
+    var cells = d.cells || [], labels = d.cellLabels || [];
+    if(cont.childElementCount !== cells.length){
+      cont.textContent = '';
+      for(var i=0;i<cells.length;i++){
+        var el = document.createElement('div'); el.className='cell';
+        var lab = document.createTextNode((labels[i]||('C'+(i+1)))+': ');
+        var b = document.createElement('b'); b.id='eCell'+i;
+        el.appendChild(lab); el.appendChild(b);
+        var u = document.createTextNode(' kg'); el.appendChild(u);
+        cont.appendChild(el);
+      }
+    }
+    for(var j=0;j<cells.length;j++){ var bb=$('eCell'+j); if(bb) bb.textContent=f(cells[j]); }
+  };
+  window.addEventListener('beforeunload', function(){ try{ ch.close(); }catch(e){} });
+<\/script></body></html>`;
+  w.document.open(); w.document.write(doc); w.document.close();
+}
 
 </script>
 </body>
