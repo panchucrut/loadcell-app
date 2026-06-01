@@ -268,6 +268,7 @@
               <input type="number" id="ctY2Max" class="form-control form-control-sm" style="width:80px" placeholder="Máx" oninput="applyCargaTRange()">
               <button class="btn btn-sm btn-outline-secondary" onclick="resetCargaTRange()">&#x21BA; Auto</button>
             </div>
+            <div id="anSensorPanel" class="mt-3" style="font-size:12px;"></div>
             <div id="analisisLegend" class="mt-3 d-flex flex-wrap gap-2"></div>
           </div>
 
@@ -1740,6 +1741,7 @@ function renderAnalisis() {
 
   Promise.all(promises).then(results => {
     const dsCargaDef = [], dsCargaT = [], dsDistT = [];
+    _anHasCell = new Set(); _anHasPress = false; _anHasDim = false;
 
     results.forEach((r, idx) => {
       const color = AN_COLORS[idx % AN_COLORS.length];
@@ -1754,28 +1756,52 @@ function renderAnalisis() {
         return s;
       });
 
-      // Carga vs Deformación (scatter)
+      // detectar qué celdas tienen data en este ensayo
+      const cellsWith = [];
+      for (let c = 1; c <= 9; c++) { const v = r.data[`celda_${c}`]; if (v && v.some(x => x)) cellsWith.push(c); }
+      cellsWith.forEach(c => _anHasCell.add(c));
+      if (pressArr.length) _anHasPress = true;
+      if (dimArr.length)   _anHasDim = true;
+
+      // Carga vs Deformación (scatter) — total
       dsCargaDef.push({
-        label: meta, data: dimArr.map((x, i) => ({ x: parseFloat(x), y: totalArr[i] })),
+        label: meta, seriesType: 'total', data: dimArr.map((x, i) => ({ x: parseFloat(x), y: totalArr[i] })),
         borderColor: color, backgroundColor: color + '22', showLine: true, borderWidth: 2, pointRadius: 0,
       });
-      // Carga vs Tiempo (line) + Presión en Y2
+      // Carga vs Tiempo (line) — total + Presión en Y2
       dsCargaT.push({
-        label: meta, data: totalArr,
+        label: meta, seriesType: 'total', data: totalArr,
         borderColor: color, backgroundColor: color + '15', borderWidth: 1.5, pointRadius: 0, tension: 0.25,
         yAxisID: 'y',
       });
       if (pressArr.length) {
         dsCargaT.push({
-          label: meta + ' (bar)', data: pressArr,
+          label: meta + ' (bar)', seriesType: 'pressure', data: pressArr,
           borderColor: color, backgroundColor: 'transparent', borderWidth: 1, pointRadius: 0,
           tension: 0.25, borderDash: [4, 3], yAxisID: 'y2',
         });
       }
-      // Distancia vs Tiempo (line)
+      // Distancia vs Tiempo (line) — total
       dsDistT.push({
-        label: meta, data: dimArr.map(v => parseFloat(v)),
+        label: meta, seriesType: 'dimension', data: dimArr.map(v => parseFloat(v)),
         borderColor: color, backgroundColor: color + '15', borderWidth: 1.5, pointRadius: 0, tension: 0.25,
+      });
+
+      // Desglose por celda (hidden por defecto) — Carga/Tiempo y Carga/Deformación
+      cellsWith.forEach(c => {
+        const arr = r.data[`celda_${c}`].map(v => parseFloat(v) || 0);
+        const cColor = color;
+        dsCargaT.push({
+          label: `${meta} · C${c}`, seriesType: 'cell' + c, hidden: true, data: arr,
+          borderColor: cColor, backgroundColor: 'transparent', borderWidth: 1, pointRadius: 0,
+          tension: 0.25, borderDash: [2, 2], yAxisID: 'y',
+        });
+        dsCargaDef.push({
+          label: `${meta} · C${c}`, seriesType: 'cell' + c, hidden: true,
+          data: dimArr.map((x, i) => ({ x: parseFloat(x), y: arr[i] || 0 })),
+          borderColor: cColor, backgroundColor: 'transparent', showLine: true,
+          borderWidth: 1, pointRadius: 0, borderDash: [2, 2],
+        });
       });
 
       // Leyenda
@@ -1808,6 +1834,48 @@ function renderAnalisis() {
     analisisChart.update();
     anChartCargaT.update();
     anChartDistT.update();
+    _buildAnSensorPanel();
+    _applyAnSensorState();
+  });
+}
+
+// ── Fase C#4: toggles de sensores con data (memoria de sesión) ──
+let _anHasCell = new Set(), _anHasPress = false, _anHasDim = false;
+// estado por serie: true = visible. total/pressure/dimension visibles por defecto; celdas ocultas
+const _anSensorState = { total: true, pressure: true, dimension: true };
+for (let c = 1; c <= 9; c++) _anSensorState['cell' + c] = false;
+
+function _buildAnSensorPanel() {
+  const panel = document.getElementById('anSensorPanel');
+  if (!panel) return;
+  const items = [];
+  items.push({ key: 'total', label: 'Carga total' });
+  if (_anHasPress) items.push({ key: 'pressure', label: 'Presión (bar)' });
+  if (_anHasDim)   items.push({ key: 'dimension', label: 'Distancia (mm)' });
+  Array.from(_anHasCell).sort((a, b) => a - b).forEach(c => items.push({ key: 'cell' + c, label: 'Celda ' + c }));
+
+  let html = '<span class="text-muted me-2">Sensores:</span>';
+  items.forEach(it => {
+    const on = _anSensorState[it.key] !== false;
+    html += `<label class="me-2" style="cursor:pointer;user-select:none">`
+      + `<input type="checkbox" data-skey="${escapeHtml(it.key)}" ${on ? 'checked' : ''}> ${escapeHtml(it.label)}</label>`;
+  });
+  panel.innerHTML = html;
+  panel.querySelectorAll('input[data-skey]').forEach(cb => {
+    cb.onchange = () => { _anSensorState[cb.dataset.skey] = cb.checked; _applyAnSensorState(); };
+  });
+}
+
+function _applyAnSensorState() {
+  [analisisChart, anChartCargaT, anChartDistT].forEach(ch => {
+    if (!ch) return;
+    let changed = false;
+    ch.data.datasets.forEach(ds => {
+      if (!ds.seriesType) return;
+      const want = _anSensorState[ds.seriesType] !== false;
+      if (ds.hidden === want) { ds.hidden = !want; changed = true; }  // hidden debe ser opuesto a "want"
+    });
+    if (changed) ch.update('none');
   });
 }
 
