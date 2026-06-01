@@ -397,6 +397,7 @@
               <label class="form-label mb-0 text-muted" style="font-size:0.75rem">Sensor a vigilar</label>
               <select class="form-select form-select-sm" id="alarmSensor">
                 <option value="total">Carga total</option>
+                <option value="any_cell">Cualquier celda (individual)</option>
                 <option value="pressure">Presión (bar)</option>
                 <option value="dimension">Distancia (mm)</option>
               </select>
@@ -872,16 +873,25 @@ function checkAlarm(d) {
   const sensor = document.getElementById('alarmSensor').value;
   const threshold = parseFloat(document.getElementById('inpAlarmThreshold').value) || 0;
   let val = 0;
+  let hitSensor = sensor;
   if (sensor === 'total') {
     val = CELL_KEYS.reduce((s, k) => s + (d[k] || 0), 0);
+  } else if (sensor === 'any_cell') {
+    // Primera celda individual que alcanza o supera el umbral
+    let maxK = CELL_KEYS[0], maxV = -Infinity;
+    for (const k of CELL_KEYS) {
+      const v = d[k] || 0;
+      if (v > maxV) { maxV = v; maxK = k; }
+      if (v >= threshold) { val = v; hitSensor = k; break; }
+    }
+    if (val < threshold) { val = maxV; hitSensor = maxK; }
   } else {
     val = d[sensor] || 0;
   }
   if (val >= threshold && !_alarmTriggered) {
     _alarmTriggered = true;
     playAlarmSound();
-    // Show non-blocking overlay alert
-    showAlarmPopup(sensor, val, threshold);
+    showAlarmPopup(hitSensor, val, threshold);
   } else if (val < threshold * 0.9) {
     _alarmTriggered = false;
   }
