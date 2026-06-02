@@ -138,3 +138,111 @@ def upload_session(sessions_dir, name):
         return True, 'Subidos: ' + ', '.join(uploaded)
     except Exception as e:  # nunca romper el guardado local
         return False, f'Excepción: {type(e).__name__}: {e}'
+
+
+# ── Lectura / sync de bajada (instancia CONSULTA_MODE en cloud) ────────────────
+def _get_json(token, url):
+    """GET JSON con urllib. Devuelve (dict|None, motivo)."""
+    import urllib.request, urllib.error
+    req = urllib.request.Request(
+        url, method='GET',
+        headers={'Authorization': 'Bearer ' + token, 'Accept': 'application/json'},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            import json as _json
+            return _json.loads(resp.read().decode('utf-8')), 'ok'
+    except urllib.error.HTTPError as e:
+        body = e.read().decode('utf-8', 'replace')[:200]
+        return None, f'HTTP {e.code}: {body}'
+    except Exception as e:
+        return None, f'{type(e).__name__}: {e}'
+
+
+def _get_bytes(token, url):
+    """GET binario con urllib. Devuelve (bytes|None, motivo)."""
+    import urllib.request, urllib.error
+    req = urllib.request.Request(
+        url, method='GET', headers={'Authorization': 'Bearer ' + token},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            return resp.read(), 'ok'
+    except urllib.error.HTTPError as e:
+        return None, f'HTTP {e.code}'
+    except Exception as e:
+        return None, f'{type(e).__name__}: {e}'
+
+
+def _children_url(path):
+    """URL de listado de hijos de una carpeta (path relativo al root del drive)."""
+    import urllib.parse
+    c = _cfg()
+    p = path.strip('/')
+    if p:
+        seg = urllib.parse.quote(p)
+        return (f"{_GRAPH}/sites/{c['site_id']}/drives/{c['drive_id']}"
+                f"/root:/{seg}:/children")
+    return (f"{_GRAPH}/sites/{c['site_id']}/drives/{c['drive_id']}/root/children")
+
+
+def sync_down(sessions_dir):
+    """Baja ensayos desde SharePoint a `sessions_dir` (solo nuevos/cambiados).
+
+    Recorre BASE_FOLDER/<sesion>/<archivos> y los escribe planos en
+    sessions_dir (mismo layout que el guardado local). Compara por tamaño:
+    si el archivo local existe con igual tamaño, no lo vuelve a bajar.
+    No lanza excepciones. Devuelve (ok: bool, detalle: str).
+    """
+    if not is_configured():
+        return False, 'Graph no configurado'
+    try:
+        token = _get_token()
+        if not token:
+            return False, 'No se pudo obtener token app-only de Graph'
+        c = _cfg()
+        base = c['base_folder'].strip('/')
+
+        folders, why = _get_json(token, _children_url(base))
+        if folders is None:
+            # carpeta base inexistente aún: no es error fatal
+            if 'HTTP 404' in (why or ''):
+                return True, 'Carpeta base vacía/inexistente'
+            return False, why
+        bajados, errores = 0, []
+        for item in folders.get('value', []):
+            if 'folder' not in item:
+                continue
+            sesion = item.get('name', '')
+            if not sesion:
+                continue
+            files, fwhy = _get_json(token, _children_url(f'{base}/{sesion}'))
+            if files is None:
+                errores.append(f'{sesion} ({fwhy})')
+                continue
+            for fitem in files.get('value', []):
+                if 'file' not in fitem:
+                    continue
+                fn = fitem.get('name', '')
+                size = fitem.get('size')
+                dl = fitem.get('@microsoft.graph.downloadUrl')
+                if not fn or not dl:
+                    continue
+                local = os.path.join(sessions_dir, fn)
+                if os.path.isfile(local) and size is not None:
+                    if os.path.getsize(local) == size:
+                        continue  # ya está, sin cambios
+                data, dwhy = _get_bytes(token, dl)
+                if data is None:
+                    errores.append(f'{sesion}/{fn} ({dwhy})')
+                    continue
+                tmp = local + '.tmp'
+                with open(tmp, 'wb') as f:
+                    f.write(data)
+                os.replace(tmp, local)
+                bajados += 1
+        if errores:
+            return False, f'Bajados {bajados}; fallaron: ' + '; '.join(errores[:5])
+        return True, f'Bajados {bajados} archivo(s)'
+    except Exception as e:
+        return False, f'Excepción: {type(e).__name__}: {e}'

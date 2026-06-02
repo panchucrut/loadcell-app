@@ -62,6 +62,39 @@ _LOCAL_MODE = os.getenv('LOCAL_MODE', 'false').lower() == 'true'
 # y bloquea en el servidor toda ruta de hardware/captura/configuración.
 _CONSULTA_MODE = os.getenv('CONSULTA_MODE', 'false').lower() == 'true'
 
+# CONSULTA_MODE: baja ensayos desde SharePoint a SESSIONS_DIR periódicamente.
+# El Mac sube (upload_session); el cloud baja (sync_down). Local lee de disco
+# con las rutas existentes sin cambios. Intervalo configurable por entorno.
+_SYNC_INTERVAL_SEC = int(os.getenv('SYNC_INTERVAL_SEC', '300'))
+_sync_started = False
+_sync_lock = threading.Lock()
+
+def _consulta_sync_once():
+    """Una pasada de bajada. No lanza; emite estado por socket."""
+    try:
+        ok, detail = _graph.sync_down(SESSIONS_DIR)
+        socketio.emit('sync', {'ok': ok, 'detail': detail})
+    except Exception:
+        pass
+
+def _start_consulta_sync():
+    """Arranca el loop de sync de bajada una sola vez (idempotente)."""
+    global _sync_started
+    if not (_CONSULTA_MODE and _graph.is_configured()):
+        return
+    with _sync_lock:
+        if _sync_started:
+            return
+        _sync_started = True
+    def _loop():
+        while True:
+            _consulta_sync_once()
+            time.sleep(max(30, _SYNC_INTERVAL_SEC))
+    threading.Thread(target=_loop, daemon=True).start()
+
+# Arranca al importar el módulo (cubre gunicorn/Passenger, sin __main__).
+_start_consulta_sync()
+
 def write_blocked(f):
     """SEC: en CONSULTA_MODE bloquea rutas de captura/hardware/config (403)."""
     @wraps(f)
