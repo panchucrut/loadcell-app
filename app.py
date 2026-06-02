@@ -1,10 +1,14 @@
 import os, json, time, glob, threading, csv, statistics, uuid
+import logging
+from logging.handlers import RotatingFileHandler
 from collections import deque
 from serial.tools import list_ports
 from datetime import datetime
 from functools import wraps
 from flask import Flask, render_template, render_template_string, jsonify, request, redirect, url_for, session, send_file, abort
 from flask_socketio import SocketIO
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 import serial
 import msal
 from dotenv import load_dotenv
@@ -39,6 +43,26 @@ app.config['SESSION_COOKIE_SECURE']   = True   # solo HTTPS
 app.config['SESSION_COOKIE_HTTPONLY'] = True   # no accesible desde JS
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['MAX_CONTENT_LENGTH'] = 8 * 1024 * 1024   # SEC-002: límite 8 MB por request
+
+# ── SEC-005: logging rotativo (F8.5) ───────────────────────────────────────────
+_LOG_FILE = os.path.join(BASE, 'app.log')
+_log_handler = RotatingFileHandler(_LOG_FILE, maxBytes=1_000_000, backupCount=5, encoding='utf-8')
+_log_handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(name)s: %(message)s'))
+_log_handler.setLevel(logging.INFO)
+app.logger.addHandler(_log_handler)
+app.logger.setLevel(logging.INFO)
+logging.getLogger('werkzeug').addHandler(_log_handler)
+
+# ── SEC-006: rate limiting (F8.2) ───────────────────────────────────────────────
+# Desactivado en LOCAL_MODE para no estorbar el monitoreo en tiempo real local.
+_LIMITER_ENABLED = os.getenv('LOCAL_MODE', 'false').lower() != 'true'
+limiter = Limiter(
+    key_func=get_remote_address,
+    app=app,
+    default_limits=['120 per minute'],
+    storage_uri='memory://',
+    enabled=_LIMITER_ENABLED,
+)
 
 # ── Azure AD (F6) ──────────────────────────────────────────────────────────────
 AZURE_CLIENT_ID     = os.getenv('AZURE_CLIENT_ID')     or os.getenv('CLIENT_ID', '')
@@ -663,6 +687,7 @@ def _serial_worker():
 
 # ── auth routes (F6) ───────────────────────────────────────────────────────────
 @app.route('/auth/login')
+@limiter.limit('10 per minute')
 def auth_login():
     next_url = _safe_next(request.args.get('next'))
     session['auth_next'] = next_url
@@ -677,6 +702,7 @@ def auth_login():
     return redirect(auth_url)
 
 @app.route('/auth/callback')
+@limiter.limit('20 per minute')
 def auth_callback():
     # SEC-001: validar state contra el nonce guardado en sesión
     expected_state = session.pop('oauth_state', None)
@@ -1231,6 +1257,7 @@ document.getElementById('fInput').addEventListener('change',function(){
     return render_template_string(tmpl, token=token, already=already)
 
 @app.route('/foto/<token>/upload', methods=['POST'])
+@limiter.limit('30 per minute')
 def foto_upload_receive(token):
     if token not in _foto_tokens or _foto_tokens[token]['expires'] < time.time():
         return jsonify({'ok': False, 'msg': 'token invalido o expirado'}), 410

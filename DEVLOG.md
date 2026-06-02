@@ -19,3 +19,9 @@
 
 ### F0.6 — fix reference_data.json
 - Aplicado en sesión anterior
+
+## F8.2 + F8.5 — Rate limiting y logging rotativo
+- SEC-005: RotatingFileHandler en app.log (1 MB × 5 backups), nivel INFO, incluye werkzeug.
+- SEC-006: Flask-Limiter (memory://), default 120/min por IP. Desactivado en LOCAL_MODE.
+  - /auth/login: 10/min · /auth/callback: 20/min · /foto/<token>/upload: 30/min (anti-abuso).
+- requirements: + flask-limiter==3.8.0
