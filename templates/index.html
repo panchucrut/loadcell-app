@@ -81,17 +81,17 @@
 
 <div class="container-fluid py-2">
   <ul class="nav nav-tabs mb-3" id="mainTabs">
-    <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#tabMonitor">Monitor</a></li>
-    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tabEnsayos" id="tabEnsayosLink">Ensayos</a></li>
+    {% if not consulta_mode %}<li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#tabMonitor">Monitor</a></li>{% endif %}
+    <li class="nav-item"><a class="nav-link{% if consulta_mode %} active{% endif %}" data-bs-toggle="tab" href="#tabEnsayos" id="tabEnsayosLink">Ensayos</a></li>
     <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tabAnalisis" id="tabAnalisisLink">Análisis</a></li>
     <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tabReferencias" id="tabRefLink">Referencias</a></li>
-    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tabConfig">Configuración</a></li>
+    {% if not consulta_mode %}<li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tabConfig">Configuración</a></li>{% endif %}
   </ul>
 
   <div class="tab-content">
 
     <!-- ═══════════════════════════ MONITOR ══════════════════════════════════ -->
-    <div class="tab-pane fade show active" id="tabMonitor">
+    <div class="tab-pane fade{% if not consulta_mode %} show active{% endif %}" id="tabMonitor">
       <div class="row g-3">
         <div class="col-xl-9">
           <div class="card p-3 mb-3">
@@ -224,7 +224,7 @@
     </div>
 
     <!-- ═══════════════════════════ ENSAYOS ════════════════════════════════ -->
-    <div class="tab-pane fade" id="tabEnsayos">
+    <div class="tab-pane fade{% if consulta_mode %} show active{% endif %}" id="tabEnsayos">
       <div class="row g-3">
         <div class="col-12">
           <div class="card p-3">
@@ -711,6 +711,7 @@ function escapeHtml(s){
 }
 // ── config declarativa inyectada desde /api/sensors (Registry.frontend_config) ──
 const SENSORS = {{ sensors_config | tojson }};
+const CONSULTA_MODE = {{ consulta_mode | tojson }};
 const _PALETTE = ['#e6194b','#3cb44b','#4363d8','#f58231','#911eb4','#42d4f4','#f032e6','#bfef45','#a9a9a9'];
 const _LOADCELLS = SENSORS.filter(s => s.type === 'loadcell');
 const CELL_KEYS = _LOADCELLS.map(s => s.id);
@@ -1693,8 +1694,11 @@ document.addEventListener('DOMContentLoaded', function() {
       _alarmSel.insertBefore(o, _pressOpt);
     });
   }
-  buildToggles(); loadSessions(); refreshPorts(true); loadFilter(); loadEnsayoMeta();
-  setTimeout(()=>refreshPorts(false), 800);
+  buildToggles(); loadSessions();
+  if (!CONSULTA_MODE) {
+    refreshPorts(true); loadFilter(); loadEnsayoMeta();
+    setTimeout(()=>refreshPorts(false), 800);
+  }
   console.log('[SP] init done');
 });
 

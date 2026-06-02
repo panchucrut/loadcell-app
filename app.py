@@ -58,6 +58,18 @@ def _msal_app():
     )
 
 _LOCAL_MODE = os.getenv('LOCAL_MODE', 'false').lower() == 'true'
+# Modo consulta: instancia online de solo lectura (cloud). Oculta Monitor/Config
+# y bloquea en el servidor toda ruta de hardware/captura/configuración.
+_CONSULTA_MODE = os.getenv('CONSULTA_MODE', 'false').lower() == 'true'
+
+def write_blocked(f):
+    """SEC: en CONSULTA_MODE bloquea rutas de captura/hardware/config (403)."""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if _CONSULTA_MODE:
+            return jsonify({'error': 'Modo consulta: acción no permitida'}), 403
+        return f(*args, **kwargs)
+    return decorated
 
 def _safe_next(url):
     """SEC-007: solo permite rutas internas relativas. Evita open redirect."""
@@ -681,10 +693,11 @@ def auth_me():
 @app.route('/')
 @login_required
 def index():
-    return render_template('index.html', sensors_config=_registry.frontend_config())
+    return render_template('index.html', sensors_config=_registry.frontend_config(), consulta_mode=_CONSULTA_MODE)
 
 @app.route('/api/ports')
 @login_required
+@write_blocked
 def get_ports():
     ports = list_ports.comports()
     return jsonify([{'port': p.device, 'desc': p.description} for p in ports])
@@ -696,6 +709,7 @@ def get_cal():
 
 @app.route('/api/calibration', methods=['POST'])
 @login_required
+@write_blocked
 def post_cal():
     save_cal(request.json)
     return jsonify({'ok': True})
@@ -707,6 +721,7 @@ def get_filter():
 
 @app.route('/api/filter', methods=['POST'])
 @login_required
+@write_blocked
 def post_filter():
     cfg = {**load_filter(), **request.json}
     save_filter(cfg)
@@ -714,6 +729,7 @@ def post_filter():
 
 @app.route('/api/connect', methods=['POST'])
 @login_required
+@write_blocked
 def connect():
     global _ser_running, _ser_thread
     body = request.json or {}
@@ -730,6 +746,7 @@ def connect():
 
 @app.route('/api/disconnect', methods=['POST'])
 @login_required
+@write_blocked
 def disconnect():
     global _ser_running
     _ser_running = False
@@ -772,6 +789,7 @@ def get_ensayo_tipos():
 
 @app.route('/api/ensayo/tipos', methods=['POST'])
 @login_required
+@write_blocked
 def post_ensayo_tipos():
     global ENSAYO_TIPOS
     body = request.json or {}
@@ -789,6 +807,7 @@ def post_ensayo_tipos():
 
 @app.route('/api/ensayo/tipos/<key>', methods=['DELETE'])
 @login_required
+@write_blocked
 def delete_ensayo_tipo(key):
     global ENSAYO_TIPOS
     key = key.strip()
@@ -811,6 +830,7 @@ def get_ensayo_config():
 
 @app.route('/api/ensayo/config', methods=['POST'])
 @login_required
+@write_blocked
 def post_ensayo_config():
     body = request.json or {}
     tipo   = (body.get('tipo') or '').strip()
@@ -836,6 +856,7 @@ def post_ensayo_config():
 
 @app.route('/api/record/start', methods=['POST'])
 @login_required
+@write_blocked
 def rec_start():
     """{manual:true} (default) salta directo a GRABANDO ignorando triggers."""
     global _ensayo_state, _recording, _session_buf, _t_record_start, _dimension_record_offset
@@ -855,6 +876,7 @@ def rec_start():
 
 @app.route('/api/record/stop', methods=['POST'])
 @login_required
+@write_blocked
 def rec_stop():
     """Aborta si ARMADO (sin guardar); pasa a PENDIENTE_DESCARTE si GRABANDO."""
     global _ensayo_state
@@ -875,6 +897,7 @@ def rec_stop():
 
 @app.route('/api/record/discard', methods=['POST'])
 @login_required
+@write_blocked
 def rec_discard():
     """Descarta el ensayo pendiente (PENDIENTE_DESCARTE) sin guardarlo."""
     with _lock:
@@ -887,6 +910,7 @@ def rec_discard():
 
 @app.route('/api/record/keep', methods=['POST'])
 @login_required
+@write_blocked
 def rec_keep():
     """Guarda ya el ensayo pendiente sin esperar a que expire la ventana."""
     with _lock:
@@ -1245,6 +1269,7 @@ def foto_token_claim(token):
 
 @app.route('/api/calibrate/zero', methods=['POST'])
 @login_required
+@write_blocked
 def calibrate_zero():
     # Promediar las muestras crudas del buffer de cada celda reduce ruido
     # en la tara (una sola lectura puede estar contaminada).
@@ -1264,6 +1289,7 @@ def calibrate_zero():
 
 @app.route('/api/calibrate/pressure/zero', methods=['POST'])
 @login_required
+@write_blocked
 def calibrate_pressure_zero():
     if not _pressure_buf:
         return jsonify({'ok': False, 'msg': 'Sin datos del Arduino'}), 400
@@ -1284,6 +1310,7 @@ def get_sensors():
 
 @app.route('/api/calibrate/dimension', methods=['POST'])
 @login_required
+@write_blocked
 def calibrate_dimension():
     with _lock:
         raw = dict(_last_raw)
@@ -1360,6 +1387,8 @@ def _security_headers(resp):
 @socketio.on('agent_raw')
 def _on_agent_raw(payload):
     global _agent_t0, _agent_last_seen
+    if _CONSULTA_MODE:
+        return  # modo consulta: no se ingieren datos en vivo
     if not AGENT_TOKEN:
         return  # entrada remota deshabilitada si no hay token configurado
     if not isinstance(payload, dict):
