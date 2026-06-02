@@ -77,6 +77,8 @@ def login_required(f):
             return redirect(url_for('auth_login', next=request.full_path if request.query_string else request.path))
         return f(*args, **kwargs)
     return decorated
+# Token compartido para el agente remoto (Mac->cloud). Si está vacío, la entrada remota queda deshabilitada.
+AGENT_TOKEN = os.getenv('AGENT_TOKEN', '')
 _ALLOWED_ORIGINS = os.getenv('ALLOWED_ORIGINS', 'https://sensores.dexfloor.com').split(',')
 if _LOCAL_MODE and 'http://localhost:5050' not in _ALLOWED_ORIGINS:
     _ALLOWED_ORIGINS.append('http://localhost:5050')
@@ -167,6 +169,9 @@ def _ensayo_params(cfg):
 _lock                 = threading.Lock()
 _ser_running          = False
 _ser_thread           = None
+# ── agente remoto (Mac->cloud vía Socket.IO) ──
+_agent_t0             = None     # referencia de tiempo; arranca al primer dato del agente
+_agent_last_seen      = 0.0      # epoch del último dato recibido del agente
 _recording            = False
 _session_buf          = []
 _serial_cfg           = {'port': '', 'baud': 115200}
@@ -460,6 +465,123 @@ def _discard_pending():
     return True
 
 # ── serial worker ──────────────────────────────────────────────────────────────
+def process_raw(raw, t0):
+    """Procesa un dict crudo del Arduino: calibra, filtra, máquina de estados, emite y graba.
+    Reutilizada por el serial local (_serial_worker) y por el agente remoto (Socket.IO).
+    t0 = referencia de tiempo del proceso/sesión activa."""
+    global _recording, _session_buf, _above_count, _below_count, _t_record_start, _dimension_record_offset
+    global _ensayo_state, _peak_total, _peak_pressure, _stab_ref_total, _stab_ref_press, _stab_t0
+    try:
+        with _lock:
+            _last_raw.update(raw)
+            if 'pressure' in raw:
+                _pressure_buf.append(float(raw['pressure']))
+            for i in range(1, 10):
+                k = f'celda_{i}'
+                if k in raw:
+                    _zero_bufs[k].append(float(raw[k]))
+        cal  = load_cal()
+        cfg  = load_filter()
+        data = apply_cal(raw, cal, cfg)
+        data = apply_filter(data, cfg)
+        data['t'] = round(time.time() - t0, 2)
+        with _lock:
+            _last_data.clear()
+            _last_data.update(data)
+
+        # ── Fase A: máquina de estados del ensayo ───────────────────
+        total    = sum(data.get(c, 0.0) for c in LOADCELL_IDS)
+        pressure = data.get(PRESSURE_IDS[0], 0.0) if PRESSURE_IDS else 0.0
+        ep       = _ensayo_params(cfg)   # params de estado según _ensayo_meta['tipo']
+        trig_kg  = float(ep['trigger_kg'])
+        trig_bar = float(ep['trigger_bar'])
+
+        # sincronizar ARMADO con el toggle auto_record
+        if cfg['auto_record'] and _ensayo_state == 'IDLE':
+            _ensayo_state = 'ARMADO'
+            _reset_ensayo_runtime()
+            socketio.emit('ensayo', {'state': 'ARMADO', 'reason': 'armado'})
+        elif not cfg['auto_record'] and _ensayo_state == 'ARMADO':
+            _ensayo_state = 'IDLE'
+            socketio.emit('ensayo', {'state': 'IDLE', 'reason': 'desarmado'})
+
+        if _ensayo_state == 'ARMADO':
+            # inicio: carga >= trigger_kg O presión >= trigger_bar, con histéresis
+            if total >= trig_kg or pressure >= trig_bar:
+                _above_count += 1
+                if _above_count >= int(ep['trigger_count']):
+                    with _lock:
+                        _start_grabando(data)
+                    socketio.emit('ensayo', {'state': 'GRABANDO', 'reason': 'trigger'})
+            else:
+                _above_count = 0
+
+        elif _ensayo_state == 'GRABANDO':
+            # actualizar picos
+            if total > _peak_total:
+                _peak_total = total
+            if pressure > _peak_pressure:
+                _peak_pressure = pressure
+
+            stop_reason = None
+
+            # fin por caída brusca desde el pico (carga O presión)
+            if ep.get('drop_enabled'):
+                dp = float(ep['drop_pct']) / 100.0
+                load_drop  = _peak_total > trig_kg and total <= _peak_total * (1 - dp)
+                press_drop = _peak_pressure > 0 and pressure <= _peak_pressure * (1 - dp)
+                if load_drop or press_drop:
+                    _below_count += 1
+                    if _below_count >= int(ep['stop_count']):
+                        stop_reason = 'caida'
+                else:
+                    _below_count = 0
+
+            # fin por estabilización (carga Y presión planas durante stab_secs)
+            if stop_reason is None and ep.get('stab_enabled'):
+                sp = float(ep['stab_pct']) / 100.0
+                if _stab_ref_total is None:
+                    _stab_ref_total = total
+                    _stab_ref_press = pressure
+                    _stab_t0 = data['t']
+                else:
+                    load_flat  = abs(total - _stab_ref_total) <= abs(_stab_ref_total) * sp
+                    press_flat = abs(pressure - _stab_ref_press) <= abs(_stab_ref_press) * sp
+                    if load_flat and press_flat:
+                        if data['t'] - _stab_t0 >= float(ep['stab_secs']):
+                            stop_reason = 'estable'
+                    else:
+                        _stab_ref_total = total
+                        _stab_ref_press = pressure
+                        _stab_t0 = data['t']
+
+            if stop_reason is not None:
+                _stop_grabando(stop_reason)
+
+        if _recording and _t_record_start is not None:
+            data['t_rel']      = round(data['t'] - _t_record_start, 2)
+            data['dimension_rel'] = round(data['dimension'] - _dimension_record_offset, 2)
+        else:
+            data['t_rel']      = 0.0
+            data['dimension_rel'] = 0.0
+
+        socketio.emit('data', data)
+        if _recording:
+            with _lock:
+                rec = {}
+                # celdas
+                for c in LOADCELL_IDS:
+                    rec[c] = data[c]
+                rec['total_kg']  = round(sum(data[c] for c in LOADCELL_IDS), 2)
+                rec['dimension'] = data['dimension_rel']
+                rec['pressure']  = data['pressure']
+                rec['t']         = data['t_rel']
+                _session_buf.append(rec)
+
+    except (KeyError, ValueError, TypeError):
+        return
+
+
 def _serial_worker():
     global _ser_running, _recording, _session_buf, _above_count, _below_count, _t_record_start, _dimension_record_offset
     global _ensayo_state, _peak_total, _peak_pressure, _stab_ref_total, _stab_ref_press, _stab_t0
@@ -477,115 +599,10 @@ def _serial_worker():
             if not line or not (line.startswith('{') and line.endswith('}')):
                 continue
             try:
-                raw  = json.loads(line)
-                with _lock:
-                    _last_raw.update(raw)
-                    if 'pressure' in raw:
-                        _pressure_buf.append(float(raw['pressure']))
-                    for i in range(1, 10):
-                        k = f'celda_{i}'
-                        if k in raw:
-                            _zero_bufs[k].append(float(raw[k]))
-                cal  = load_cal()
-                cfg  = load_filter()
-                data = apply_cal(raw, cal, cfg)
-                data = apply_filter(data, cfg)
-                data['t'] = round(time.time() - t0, 2)
-                with _lock:
-                    _last_data.clear()
-                    _last_data.update(data)
-
-                # ── Fase A: máquina de estados del ensayo ───────────────────
-                total    = sum(data.get(c, 0.0) for c in LOADCELL_IDS)
-                pressure = data.get(PRESSURE_IDS[0], 0.0) if PRESSURE_IDS else 0.0
-                ep       = _ensayo_params(cfg)   # params de estado según _ensayo_meta['tipo']
-                trig_kg  = float(ep['trigger_kg'])
-                trig_bar = float(ep['trigger_bar'])
-
-                # sincronizar ARMADO con el toggle auto_record
-                if cfg['auto_record'] and _ensayo_state == 'IDLE':
-                    _ensayo_state = 'ARMADO'
-                    _reset_ensayo_runtime()
-                    socketio.emit('ensayo', {'state': 'ARMADO', 'reason': 'armado'})
-                elif not cfg['auto_record'] and _ensayo_state == 'ARMADO':
-                    _ensayo_state = 'IDLE'
-                    socketio.emit('ensayo', {'state': 'IDLE', 'reason': 'desarmado'})
-
-                if _ensayo_state == 'ARMADO':
-                    # inicio: carga >= trigger_kg O presión >= trigger_bar, con histéresis
-                    if total >= trig_kg or pressure >= trig_bar:
-                        _above_count += 1
-                        if _above_count >= int(ep['trigger_count']):
-                            with _lock:
-                                _start_grabando(data)
-                            socketio.emit('ensayo', {'state': 'GRABANDO', 'reason': 'trigger'})
-                    else:
-                        _above_count = 0
-
-                elif _ensayo_state == 'GRABANDO':
-                    # actualizar picos
-                    if total > _peak_total:
-                        _peak_total = total
-                    if pressure > _peak_pressure:
-                        _peak_pressure = pressure
-
-                    stop_reason = None
-
-                    # fin por caída brusca desde el pico (carga O presión)
-                    if ep.get('drop_enabled'):
-                        dp = float(ep['drop_pct']) / 100.0
-                        load_drop  = _peak_total > trig_kg and total <= _peak_total * (1 - dp)
-                        press_drop = _peak_pressure > 0 and pressure <= _peak_pressure * (1 - dp)
-                        if load_drop or press_drop:
-                            _below_count += 1
-                            if _below_count >= int(ep['stop_count']):
-                                stop_reason = 'caida'
-                        else:
-                            _below_count = 0
-
-                    # fin por estabilización (carga Y presión planas durante stab_secs)
-                    if stop_reason is None and ep.get('stab_enabled'):
-                        sp = float(ep['stab_pct']) / 100.0
-                        if _stab_ref_total is None:
-                            _stab_ref_total = total
-                            _stab_ref_press = pressure
-                            _stab_t0 = data['t']
-                        else:
-                            load_flat  = abs(total - _stab_ref_total) <= abs(_stab_ref_total) * sp
-                            press_flat = abs(pressure - _stab_ref_press) <= abs(_stab_ref_press) * sp
-                            if load_flat and press_flat:
-                                if data['t'] - _stab_t0 >= float(ep['stab_secs']):
-                                    stop_reason = 'estable'
-                            else:
-                                _stab_ref_total = total
-                                _stab_ref_press = pressure
-                                _stab_t0 = data['t']
-
-                    if stop_reason is not None:
-                        _stop_grabando(stop_reason)
-
-                if _recording and _t_record_start is not None:
-                    data['t_rel']      = round(data['t'] - _t_record_start, 2)
-                    data['dimension_rel'] = round(data['dimension'] - _dimension_record_offset, 2)
-                else:
-                    data['t_rel']      = 0.0
-                    data['dimension_rel'] = 0.0
-
-                socketio.emit('data', data)
-                if _recording:
-                    with _lock:
-                        rec = {}
-                        # celdas
-                        for c in LOADCELL_IDS:
-                            rec[c] = data[c]
-                        rec['total_kg']  = round(sum(data[c] for c in LOADCELL_IDS), 2)
-                        rec['dimension'] = data['dimension_rel']
-                        rec['pressure']  = data['pressure']
-                        rec['t']         = data['t_rel']
-                        _session_buf.append(rec)
-
-            except (json.JSONDecodeError, KeyError):
+                raw = json.loads(line)
+            except json.JSONDecodeError:
                 continue
+            process_raw(raw, t0)
 
     except serial.SerialException as e:
         socketio.emit('status', {'connected': False, 'error': str(e)})
@@ -1335,6 +1352,40 @@ def _security_headers(resp):
     if not _LOCAL_MODE:
         resp.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
     return resp
+
+
+# ── agente remoto: ingreso de datos crudos del Arduino vía Socket.IO ─────────────
+# El Mac corre agente.py, lee el Arduino por USB y reenvía cada JSON crudo aquí.
+# Reusa process_raw() — misma calibración/máquina de estados que el serial local.
+@socketio.on('agent_raw')
+def _on_agent_raw(payload):
+    global _agent_t0, _agent_last_seen
+    if not AGENT_TOKEN:
+        return  # entrada remota deshabilitada si no hay token configurado
+    if not isinstance(payload, dict):
+        return
+    if payload.get('token') != AGENT_TOKEN:
+        return  # token inválido: ignorar en silencio
+    raw = payload.get('raw')
+    if not isinstance(raw, dict):
+        return
+    now = time.time()
+    if _agent_t0 is None:
+        _agent_t0 = now
+        socketio.emit('status', {'connected': True, 'source': 'agent'})
+    _agent_last_seen = now
+    process_raw(raw, _agent_t0)
+
+
+@socketio.on('agent_bye')
+def _on_agent_bye(payload):
+    global _agent_t0
+    if not AGENT_TOKEN or not isinstance(payload, dict):
+        return
+    if payload.get('token') != AGENT_TOKEN:
+        return
+    _agent_t0 = None
+    socketio.emit('status', {'connected': False, 'source': 'agent'})
 
 
 if __name__ == '__main__':
