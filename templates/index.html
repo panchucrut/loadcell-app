@@ -1044,6 +1044,7 @@ socket.on('status', s=>{
     badge.textContent=s.error?'⚠ '+s.error.slice(0,30):'Desconectado';
     btn.className='btn btn-sm btn-success'; btn.textContent='Conectar';
   }
+  if(typeof _ensayoSendState==='function') _ensayoSendState();
 });
 
 function getSlice(){
@@ -1780,6 +1781,7 @@ socket.on('ensayo', e=>{
       }
       break;
   }
+  if(typeof _ensayoSendState==='function') _ensayoSendState();
 });
 
 document.addEventListener('DOMContentLoaded', function() {
@@ -2290,13 +2292,14 @@ document.getElementById('ensayoModal').addEventListener('hidden.bs.modal', clear
 const _ENSAYO_CH = 'sp_ensayo_screen';
 let _ensayoBChan = null;
 function _ensayoBroadcast(d){
-  if(!_ensayoBChan){ try{ _ensayoBChan = new BroadcastChannel(_ENSAYO_CH); }catch(e){ return; } }
+  if(!_ensayoBChan){ try{ _ensayoBChan = new BroadcastChannel(_ENSAYO_CH); _ensayoCmdInit(); }catch(e){ return; } }
   const vals = CELL_KEYS.map(k => d[k] || 0);
   const total = vals.reduce((a,b)=>a+b,0);
   const maxV = vals.length ? Math.max(...vals) : 0;
   const maxI = vals.indexOf(maxV);
   try{
     _ensayoBChan.postMessage({
+      type:'data',
       total, maxV, maxI,
       dist: distLive(d),
       press: d.pressure,
@@ -2307,11 +2310,60 @@ function _ensayoBroadcast(d){
     });
   }catch(e){}
 }
+
+// Listener para comandos desde la pantalla popup
+let _ensayoCmdInitDone = false;
+function _ensayoCmdInit(){
+  if(_ensayoCmdInitDone || !_ensayoBChan) return;
+  _ensayoCmdInitDone = true;
+  _ensayoBChan.addEventListener('message', function(ev){
+    const m = ev.data || {};
+    if(m.type !== 'cmd') return;
+    try{
+      if(m.cmd === 'getState'){ _ensayoSendState(); }
+      else if(m.cmd === 'refreshPorts'){ refreshPorts(); setTimeout(_ensayoSendState, 400); }
+      else if(m.cmd === 'connect'){
+        if(connected){ fetch('/api/disconnect',{method:'POST'}); }
+        else if(m.port && /^[A-Za-z0-9_./\-]{1,200}$/.test(m.port)){
+          const sel = document.getElementById('portSelect');
+          if(sel) sel.value = m.port;
+          fetch('/api/connect',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({port:m.port,baud:115200})});
+          const b=document.getElementById('statusBadge'); if(b){b.className='badge bg-warning text-dark'; b.textContent='Conectando…';}
+        }
+      }
+      else if(m.cmd === 'record'){ toggleRecord(); setTimeout(_ensayoSendState, 200); }
+      else if(m.cmd === 'setTipo' && m.tipo && _tiposCache && _tiposCache[m.tipo]){
+        const sel = document.getElementById('monitorTipoSel');
+        if(sel){ sel.value = m.tipo; setTipoFromMonitor(m.tipo); }
+        setTimeout(_ensayoSendState, 200);
+      }
+    }catch(e){ console.error('ensayoCmd:', e); }
+  });
+}
+
+// Envía estado UI al popup (puertos, tipos, connected, recording)
+function _ensayoSendState(){
+  if(!_ensayoBChan){ try{ _ensayoBChan = new BroadcastChannel(_ENSAYO_CH); _ensayoCmdInit(); }catch(e){ return; } }
+  const portSel = document.getElementById('portSelect');
+  const tipoSel = document.getElementById('monitorTipoSel');
+  const ports = portSel ? Array.from(portSel.options).filter(o=>o.value).map(o=>({value:o.value, label:o.textContent})) : [];
+  const tipos = Object.entries(_tiposCache||{}).map(([k,v])=>({value:k, label:v}));
+  try{
+    _ensayoBChan.postMessage({
+      type:'state',
+      connected: !!connected,
+      recording: !!recording,
+      currentPort: portSel ? portSel.value : '',
+      currentTipo: tipoSel ? tipoSel.value : '',
+      ports, tipos,
+    });
+  }catch(e){}
+}
 function openEnsayoScreen(){
-  const w = window.open('', 'sp_ensayo', 'width=1200,height=800');
+  const w = window.open('', 'sp_ensayo', 'width=1280,height=860');
   if(!w){ alert('Permite ventanas emergentes para abrir la pantalla de ensayo.'); return; }
   // SEC: documento autocontenido, sin datos de usuario en el HTML estático.
-  // Los datos llegan por BroadcastChannel y se insertan vía textContent (no innerHTML).
+  // Datos llegan por BroadcastChannel y se insertan vía textContent / selectores controlados (no innerHTML).
   const doc = `<!doctype html><html lang="es"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Pantalla de ensayo</title>
@@ -2320,22 +2372,49 @@ function openEnsayoScreen(){
   html,body{height:100%;font-family:-apple-system,Segoe UI,Roboto,sans-serif;background:#0f172a;color:#f1f5f9;transition:background .15s}
   body.alarm{background:#dc2626 !important;color:#fff}
   body.alarm .card{background:rgba(0,0,0,.25) !important;border-color:rgba(255,255,255,.4) !important}
-  .wrap{height:100%;display:flex;flex-direction:column;padding:2vmin;gap:1.5vmin}
+  body.alarm .ctrl{background:rgba(0,0,0,.25) !important;border-color:rgba(255,255,255,.35) !important}
+  .wrap{height:100%;display:flex;flex-direction:column;padding:1.5vmin;gap:1.2vmin}
+  .ctrl{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);border-radius:1vmin;padding:1vmin 1.4vmin;display:flex;flex-wrap:wrap;align-items:center;gap:1vmin;font-size:1.8vmin}
+  .ctrl label{font-size:1.5vmin;opacity:.7;text-transform:uppercase;letter-spacing:.04em;font-weight:600}
+  .ctrl select{background:rgba(0,0,0,.35);color:#f1f5f9;border:1px solid rgba(255,255,255,.2);border-radius:.6vmin;padding:.6vmin 1vmin;font-size:1.7vmin;min-width:18vmin;font-family:inherit}
+  .ctrl button{border:0;border-radius:.6vmin;padding:.8vmin 1.6vmin;font-size:1.7vmin;font-weight:700;cursor:pointer;font-family:inherit;color:#fff;transition:filter .15s}
+  .ctrl button:hover:not(:disabled){filter:brightness(1.15)}
+  .ctrl button:disabled{opacity:.5;cursor:not-allowed}
+  .b-conn{background:#16a34a}.b-disc{background:#dc2626}
+  .b-rec{background:#dc2626}.b-stop{background:#ea580c}
+  .b-refresh{background:rgba(255,255,255,.15);font-size:1.5vmin;padding:.5vmin .9vmin}
+  .dot{display:inline-block;width:1.2vmin;height:1.2vmin;border-radius:50%;background:#6b7280;margin-right:.5vmin;vertical-align:middle}
+  .dot.on{background:#16a34a;box-shadow:0 0 .8vmin #16a34a}
+  .dot.rec{background:#dc2626;animation:pulse 1s infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
   .head{display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:1vmin}
-  .ensayo{font-size:3vmin;font-weight:700;opacity:.85}
-  .alarmTxt{font-size:3vmin;font-weight:800;display:none}
+  .ensayo{font-size:2.6vmin;font-weight:700;opacity:.85}
+  .alarmTxt{font-size:2.8vmin;font-weight:800;display:none}
   body.alarm .alarmTxt{display:inline}
-  .grid{flex:1;display:grid;grid-template-columns:repeat(2,1fr);grid-template-rows:repeat(2,1fr);gap:1.5vmin}
+  .grid{flex:1;display:grid;grid-template-columns:repeat(2,1fr);grid-template-rows:repeat(2,1fr);gap:1.2vmin}
   .card{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.15);border-radius:1.5vmin;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:1vmin}
-  .lbl{font-size:2.4vmin;font-weight:600;opacity:.75;text-transform:uppercase;letter-spacing:.05em}
-  .val{font-size:11vmin;font-weight:800;line-height:1;font-variant-numeric:tabular-nums}
-  .unit{font-size:3vmin;font-weight:600;opacity:.7}
-  .sub{font-size:2vmin;opacity:.6;margin-top:.5vmin}
-  .cells{display:flex;flex-wrap:wrap;gap:1vmin;justify-content:center;padding:0 1vmin 1vmin}
-  .cell{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:1vmin;padding:.8vmin 1.4vmin;font-size:2.2vmin;font-variant-numeric:tabular-nums}
+  .lbl{font-size:2.2vmin;font-weight:600;opacity:.75;text-transform:uppercase;letter-spacing:.05em}
+  .val{font-size:10vmin;font-weight:800;line-height:1;font-variant-numeric:tabular-nums}
+  .unit{font-size:2.6vmin;font-weight:600;opacity:.7}
+  .sub{font-size:1.8vmin;opacity:.6;margin-top:.5vmin}
+  .cells{display:flex;flex-wrap:wrap;gap:.8vmin;justify-content:center;padding:0 1vmin}
+  .cell{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:.8vmin;padding:.6vmin 1.2vmin;font-size:2vmin;font-variant-numeric:tabular-nums}
   .cell b{font-weight:800}
 </style></head><body>
 <div class="wrap">
+  <div class="ctrl">
+    <span><span class="dot" id="cDot"></span><span id="cStatus">Desconectado</span></span>
+    <label for="cPort">Puerto</label>
+    <select id="cPort"><option value="">— sin puertos —</option></select>
+    <button class="b-refresh" id="cRefresh" title="Refrescar puertos">↻</button>
+    <button class="b-conn" id="cConnect">Conectar</button>
+    <span style="opacity:.4">|</span>
+    <label for="cTipo">Tipo de ensayo</label>
+    <select id="cTipo"><option value="">— sin tipos —</option></select>
+    <span style="opacity:.4">|</span>
+    <button class="b-rec" id="cRec" disabled>⏺ Grabar</button>
+    <span id="cRecBadge" style="display:none;color:#fecaca;font-weight:700"><span class="dot rec"></span>REC</span>
+  </div>
   <div class="head">
     <div class="ensayo" id="eEnsayo">—</div>
     <div class="alarmTxt">🚨 ALERTA — LÍMITE ALCANZADO</div>
@@ -2352,8 +2431,43 @@ function openEnsayoScreen(){
   var ch = new BroadcastChannel(${JSON.stringify(_ENSAYO_CH)});
   var $ = function(id){ return document.getElementById(id); };
   function f(n){ return (typeof n==='number' && isFinite(n)) ? n.toFixed(1) : '0.0'; }
-  ch.onmessage = function(ev){
-    var d = ev.data || {};
+  var _connected=false, _recording=false;
+  function sendCmd(o){ try{ o.type='cmd'; ch.postMessage(o); }catch(e){} }
+  function applyState(s){
+    _connected=!!s.connected; _recording=!!s.recording;
+    $('cDot').className = 'dot' + (_connected?' on':'');
+    $('cStatus').textContent = _connected?'Conectado':'Desconectado';
+    var bC = $('cConnect');
+    bC.textContent = _connected?'Desconectar':'Conectar';
+    bC.className = _connected?'b-disc':'b-conn';
+    var bR = $('cRec');
+    bR.disabled = !_connected;
+    bR.textContent = _recording?'⏹ Detener':'⏺ Grabar';
+    bR.className = _recording?'b-stop':'b-rec';
+    $('cRecBadge').style.display = _recording?'inline':'none';
+    // poblar puertos
+    var portSel = $('cPort'), cur = portSel.value || s.currentPort || '';
+    portSel.textContent = '';
+    var ports = s.ports || [];
+    if(!ports.length){ var o=document.createElement('option'); o.value=''; o.textContent='— sin puertos —'; portSel.appendChild(o); }
+    for(var i=0;i<ports.length;i++){
+      var o=document.createElement('option'); o.value=ports[i].value; o.textContent=ports[i].label; portSel.appendChild(o);
+    }
+    if(cur) portSel.value = cur;
+    portSel.disabled = _connected;
+    // poblar tipos
+    var tipoSel = $('cTipo'), curT = tipoSel.value || s.currentTipo || '';
+    tipoSel.textContent = '';
+    var tipos = s.tipos || [];
+    if(!tipos.length){ var o=document.createElement('option'); o.value=''; o.textContent='— sin tipos —'; tipoSel.appendChild(o); }
+    for(var i=0;i<tipos.length;i++){
+      var o=document.createElement('option'); o.value=tipos[i].value; o.textContent=tipos[i].label; tipoSel.appendChild(o);
+    }
+    if(s.currentTipo) tipoSel.value = s.currentTipo;
+    else if(curT) tipoSel.value = curT;
+    tipoSel.disabled = _recording;
+  }
+  function applyData(d){
     $('eTotal').textContent = f(d.total);
     $('eMax').textContent = f(d.maxV);
     $('eMaxName').textContent = (d.cellLabels && d.cellLabels[d.maxI]) ? d.cellLabels[d.maxI] : ('Celda ' + ((d.maxI||0)+1));
@@ -2375,10 +2489,28 @@ function openEnsayoScreen(){
       }
     }
     for(var j=0;j<cells.length;j++){ var bb=$('eCell'+j); if(bb) bb.textContent=f(cells[j]); }
+  }
+  ch.onmessage = function(ev){
+    var m = ev.data || {};
+    if(m.type === 'state') applyState(m);
+    else if(m.type === 'data' || (!m.type && typeof m.total !== 'undefined')) applyData(m);
   };
+  $('cConnect').addEventListener('click', function(){
+    if(_connected) sendCmd({cmd:'connect'});
+    else { var p=$('cPort').value; if(!p){ alert('Selecciona un puerto.'); return; } sendCmd({cmd:'connect', port:p}); }
+  });
+  $('cRefresh').addEventListener('click', function(){ sendCmd({cmd:'refreshPorts'}); });
+  $('cRec').addEventListener('click', function(){ sendCmd({cmd:'record'}); });
+  $('cTipo').addEventListener('change', function(){ var v=$('cTipo').value; if(v) sendCmd({cmd:'setTipo', tipo:v}); });
   window.addEventListener('beforeunload', function(){ try{ ch.close(); }catch(e){} });
+  // pedir estado inicial
+  sendCmd({cmd:'getState'});
+  sendCmd({cmd:'refreshPorts'});
 <\/script></body></html>`;
   w.document.open(); w.document.write(doc); w.document.close();
+  // forzar envío de estado tras abrir popup
+  setTimeout(function(){ if(typeof _ensayoSendState==='function') _ensayoSendState(); }, 500);
+  setTimeout(function(){ if(typeof _ensayoSendState==='function') _ensayoSendState(); }, 1500);
 }
 
 </script>
