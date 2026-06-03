@@ -113,6 +113,10 @@
                 <button id="pauseBtn" class="btn btn-sm btn-outline-warning" onclick="togglePause()">⏸ Pausar</button>
                 <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#ensayoModal">📷 Foto</button>
                 <button id="recBtn"   class="btn btn-sm btn-outline-danger"  onclick="toggleRecord()">⏺ Grabar</button>
+                <div class="form-check form-switch mb-0" style="padding-left:2.2em" title="Cuando está activado, al presionar Grabar el sistema queda armado esperando carga/presión. Si está apagado, graba de inmediato.">
+                  <input class="form-check-input" type="checkbox" id="autoRecSwitch" onchange="setAutoRecord(this.checked)">
+                  <label class="form-check-label" for="autoRecSwitch" style="font-size:0.78rem">Auto</label>
+                </div>
                 <span id="recBadge" class="badge bg-danger pulsing d-none">● REC</span>
               </div>
               <div class="d-flex gap-2 align-items-center">
@@ -779,7 +783,7 @@ function tipoColor(tipo){
   return `hsl(${h%360} 65% 45%)`;
 }
 
-let paused=false, recording=false, connected=false, windowSec=60, selectedSes=null;
+let paused=false, recording=false, armed=false, connected=false, windowSec=60, selectedSes=null;
 // T9: multi-select state (always on)
 const _selSet = new Set();
 let _sesResizeInit = false;
@@ -1135,27 +1139,40 @@ function toggleConnect(){
 let _stopping = false;
 function toggleRecord(){
   const btn = document.getElementById('recBtn');
-  if(!recording){
+  if(!recording && !armed){
+    // IDLE → iniciar (el backend decide ARMADO vs GRABANDO según auto_record)
     btn.disabled = true;
-    fetch('/api/record/start',{method:'POST'}).then(()=>{
-      recording=true; btn.disabled = false;
-      clearChart();   // reinicia buffers: distancia/gráfico arrancan en 0 al grabar
-      btn.textContent='⏹ Detener';
-      document.getElementById('recBadge').classList.remove('d-none');
+    fetch('/api/record/start',{method:'POST'}).then(r=>r.json()).then(d=>{
+      btn.disabled = false;
+      if(!d.ok && d.msg) alert('⚠ '+d.msg);
+      // El socket 'ensayo' actualiza UI según el estado real
     }).catch(()=>{ btn.disabled = false; });
   } else {
+    // GRABANDO o ARMADO → detener/cancelar
     if(_stopping) return;
     _stopping = true;
     btn.disabled = true;
     btn.textContent = '⏳ …';
     fetch('/api/record/stop',{method:'POST'}).then(r=>r.json()).then(d=>{
-      recording=false; _stopping = false; btn.disabled = false;
-      btn.textContent='⏺ Grabar';
-      document.getElementById('recBadge').classList.add('d-none');
-      // El guardado real ocurre tras la ventana de descarte; el banner lo dispara socket 'ensayo'.
+      _stopping = false; btn.disabled = false;
+      // El socket 'ensayo' actualiza UI según el estado real
       if(!d.ok && d.msg) alert('⚠ '+d.msg);
-    }).catch(()=>{ _stopping = false; btn.disabled = false; btn.textContent='⏹ Detener'; });
+    }).catch(()=>{ _stopping = false; btn.disabled = false; });
   }
+}
+
+// Switch Auto-record (al lado del botón Grabar)
+function setAutoRecord(v){
+  fetch('/api/filter',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({auto_record: !!v})})
+    .then(r=>r.json()).then(()=>{ if(typeof _ensayoSendState==='function') _ensayoSendState(); })
+    .catch(e=>console.error('setAutoRecord:',e));
+}
+function loadAutoRecordSwitch(){
+  fetch('/api/filter').then(r=>r.json()).then(cfg=>{
+    const sw = document.getElementById('autoRecSwitch');
+    if(sw) sw.checked = !!cfg.auto_record;
+    if(typeof _ensayoSendState==='function') _ensayoSendState();
+  }).catch(e=>console.error('loadAutoRecordSwitch:',e));
 }
 
 // ── Fase B: descarte / guardado del ensayo pendiente ───────────────────────────
@@ -1770,18 +1787,32 @@ socket.on('ensayo', e=>{
   };
   switch(e.state){
     case 'GRABANDO':
-      recording=true; if(e.reason!=='manual') clearChart();
-      recBtn.textContent='⏹ Detener'; recBadge.classList.remove('d-none');
+      recording=true; armed=false; if(e.reason!=='manual') clearChart();
+      recBtn.textContent='⏹ Detener';
+      recBadge.classList.remove('d-none');
+      recBadge.textContent='● REC';
+      recBadge.className='badge bg-danger pulsing';
       _hideDiscardBanner();
       break;
     case 'PENDIENTE_DESCARTE':
-      recording=false; recBtn.textContent='⏺ Grabar'; recBadge.classList.add('d-none');
+      recording=false; armed=false;
+      recBtn.textContent='⏺ Grabar';
+      recBadge.classList.add('d-none');
       _pendingFotoName = null;
       _showDiscardBanner(e.rows||0, e.window);
       break;
     case 'ARMADO':
+      recording=false; armed=true;
+      recBtn.textContent='⏹ Cancelar';
+      recBadge.classList.remove('d-none');
+      recBadge.textContent='○ ESPERANDO';
+      recBadge.className='badge bg-warning text-dark pulsing';
+      _hideDiscardBanner();
+      break;
     case 'IDLE':
-      recording=false; recBtn.textContent='⏺ Grabar'; recBadge.classList.add('d-none');
+      recording=false; armed=false;
+      recBtn.textContent='⏺ Grabar';
+      recBadge.classList.add('d-none');
       _hideDiscardBanner();
       if(e.reason==='guardado'){
         if(e.name){ _pendingFotoName=e.name; uploadPendingFoto(e.name); loadSessions(); }
@@ -1808,7 +1839,7 @@ document.addEventListener('DOMContentLoaded', function() {
   }
   buildToggles(); loadSessions();
   if (!CONSULTA_MODE) {
-    refreshPorts(true); loadFilter(); loadEnsayoMeta();
+    refreshPorts(true); loadFilter(); loadEnsayoMeta(); loadAutoRecordSwitch();
     setTimeout(()=>refreshPorts(false), 800);
   }
   console.log('[SP] init done');
@@ -2342,6 +2373,10 @@ function _ensayoCmdInit(){
         }
       }
       else if(m.cmd === 'record'){ toggleRecord(); setTimeout(_ensayoSendState, 200); }
+      else if(m.cmd === 'setAutoRecord'){
+        const sw = document.getElementById('autoRecSwitch');
+        if(sw){ sw.checked = !!m.value; setAutoRecord(!!m.value); }
+      }
       else if(m.cmd === 'setTipo' && m.tipo && _tiposCache && _tiposCache[m.tipo]){
         const sel = document.getElementById('monitorTipoSel');
         if(sel){ sel.value = m.tipo; setTipoFromMonitor(m.tipo); }
@@ -2390,6 +2425,8 @@ function _ensayoSendState(){
       type:'state',
       connected: !!connected,
       recording: !!recording,
+      armed: !!armed,
+      autoRecord: !!(document.getElementById('autoRecSwitch') && document.getElementById('autoRecSwitch').checked),
       currentPort: portSel ? portSel.value : '',
       currentTipo,
       ports, tipos, alarms, tipoColors,
@@ -2414,12 +2451,20 @@ function openEnsayoScreen(){
   .ctrl button:hover:not(:disabled){filter:brightness(1.15)}
   .ctrl button:disabled{opacity:.5;cursor:not-allowed}
   .b-conn{background:#16a34a}.b-disc{background:#dc2626}
-  .b-rec{background:#dc2626}.b-stop{background:#ea580c}
+  .b-rec{background:#dc2626}.b-stop{background:#ea580c}.b-cancel{background:#f59e0b;color:#1f2937}
   .b-refresh{background:rgba(255,255,255,.15);font-size:1.5vmin;padding:.5vmin .9vmin}
   .dot{display:inline-block;width:1.2vmin;height:1.2vmin;border-radius:50%;background:#6b7280;margin-right:.5vmin;vertical-align:middle}
   .dot.on{background:#16a34a;box-shadow:0 0 .8vmin #16a34a}
   .dot.rec{background:#dc2626;animation:pulse 1s infinite}
+  .dot.armed{background:#f59e0b;animation:pulse 1.4s infinite}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+  .auto-sw{display:inline-flex;align-items:center;gap:.6vmin;cursor:pointer;user-select:none}
+  .auto-sw input{display:none}
+  .auto-track{display:inline-block;width:3.6vmin;height:1.8vmin;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);border-radius:1vmin;position:relative;transition:background .15s}
+  .auto-track::after{content:"";position:absolute;top:.1vmin;left:.1vmin;width:1.4vmin;height:1.4vmin;background:#fff;border-radius:50%;transition:left .15s}
+  .auto-sw input:checked + .auto-track{background:#16a34a;border-color:#16a34a}
+  .auto-sw input:checked + .auto-track::after{left:1.95vmin}
+  .auto-lbl{font-size:1.5vmin;opacity:.85;text-transform:uppercase;letter-spacing:.04em;font-weight:600}
   .head{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:1.5vmin;padding:.5vmin 1vmin}
   .ensayo-wrap{display:flex;align-items:center;gap:1.5vmin;flex-wrap:wrap}
   .ensayo-lbl{font-size:2.2vmin;opacity:.7;font-weight:500;letter-spacing:.02em}
@@ -2452,7 +2497,10 @@ function openEnsayoScreen(){
     <button class="b-conn" id="cConnect">Conectar</button>
     <span style="opacity:.4">|</span>
     <button class="b-rec" id="cRec" disabled>⏺ Grabar</button>
-    <span id="cRecBadge" style="display:none;color:#fecaca;font-weight:700"><span class="dot rec"></span>REC</span>
+    <label class="auto-sw" title="Cuando está activado, al presionar Grabar el sistema queda armado esperando carga/presión. Si está apagado, graba de inmediato.">
+      <input type="checkbox" id="cAuto"><span class="auto-track"></span><span class="auto-lbl">Auto</span>
+    </label>
+    <span id="cRecBadge" style="display:none;font-weight:700"><span class="dot rec" id="cRecDot"></span><span id="cRecBadgeTxt">REC</span></span>
   </div>
   <div class="head">
     <div class="ensayo-wrap">
@@ -2494,7 +2542,7 @@ function openEnsayoScreen(){
   var ch = new BroadcastChannel(${JSON.stringify(_ENSAYO_CH)});
   var $ = function(id){ return document.getElementById(id); };
   function f(n){ return (typeof n==='number' && isFinite(n)) ? n.toFixed(1) : '0.0'; }
-  var _connected=false, _recording=false, _currentTipo='', _tipoColors={};
+  var _connected=false, _recording=false, _armed=false, _autoRecord=false, _currentTipo='', _tipoColors={};
   function sendCmd(o){ try{ o.type='cmd'; ch.postMessage(o); }catch(e){} }
   function applyTipoColor(){
     var sel = $('cTipo');
@@ -2502,7 +2550,7 @@ function openEnsayoScreen(){
     sel.style.background = col;
   }
   function applyState(s){
-    _connected=!!s.connected; _recording=!!s.recording;
+    _connected=!!s.connected; _recording=!!s.recording; _armed=!!s.armed; _autoRecord=!!s.autoRecord;
     _currentTipo = s.currentTipo || '';
     _tipoColors = s.tipoColors || {};
     $('cDot').className = 'dot' + (_connected?' on':'');
@@ -2512,9 +2560,23 @@ function openEnsayoScreen(){
     bC.className = _connected?'b-disc':'b-conn';
     var bR = $('cRec');
     bR.disabled = !_connected;
-    bR.textContent = _recording?'⏹ Detener':'⏺ Grabar';
-    bR.className = _recording?'b-stop':'b-rec';
-    $('cRecBadge').style.display = _recording?'inline':'none';
+    if(_recording){ bR.textContent='⏹ Detener'; bR.className='b-stop'; }
+    else if(_armed){ bR.textContent='⏹ Cancelar'; bR.className='b-cancel'; }
+    else { bR.textContent='⏺ Grabar'; bR.className='b-rec'; }
+    // badge REC / ESPERANDO
+    var badge = $('cRecBadge'), badgeDot = $('cRecDot'), badgeTxt = $('cRecBadgeTxt');
+    if(_recording){
+      badge.style.display='inline'; badge.style.color='#fecaca';
+      badgeDot.className='dot rec'; badgeTxt.textContent='REC';
+    } else if(_armed){
+      badge.style.display='inline'; badge.style.color='#fcd34d';
+      badgeDot.className='dot armed'; badgeTxt.textContent='ESPERANDO';
+    } else {
+      badge.style.display='none';
+    }
+    // switch auto (no pisar si el usuario lo está manipulando)
+    var swA = $('cAuto');
+    if(swA && document.activeElement !== swA) swA.checked = _autoRecord;
     // poblar puertos
     var portSel = $('cPort'), curP = portSel.value || s.currentPort || '';
     portSel.textContent = '';
@@ -2535,7 +2597,7 @@ function openEnsayoScreen(){
     }
     if(_currentTipo) tipoSel.value = _currentTipo;
     else if(curT) tipoSel.value = curT;
-    tipoSel.disabled = _recording;
+    tipoSel.disabled = _recording || _armed;
     applyTipoColor();
     // poblar inputs de alarma con valores del tipo actual (sin pisar input enfocado)
     var alarms = s.alarms || {};
@@ -2591,6 +2653,7 @@ function openEnsayoScreen(){
   });
   $('cRefresh').addEventListener('click', function(){ sendCmd({cmd:'refreshPorts'}); });
   $('cRec').addEventListener('click', function(){ sendCmd({cmd:'record'}); });
+  $('cAuto').addEventListener('change', function(){ sendCmd({cmd:'setAutoRecord', value: $('cAuto').checked}); });
   $('cTipo').addEventListener('change', function(){
     var v=$('cTipo').value; if(!v) return;
     _currentTipo = v; applyTipoColor();

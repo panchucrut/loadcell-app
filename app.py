@@ -459,8 +459,7 @@ def _stop_grabando(reason):
         _session_buf.clear()
         _reset_ensayo_runtime()
         if not buf:
-            cfg_now = load_filter()
-            _ensayo_state = 'ARMADO' if cfg_now.get('auto_record') else 'IDLE'
+            _ensayo_state = 'IDLE'
             _pending_buf = _pending_meta = _pending_reason = None
             socketio.emit('ensayo', {'state': _ensayo_state, 'reason': reason, 'rows': 0})
             return _ensayo_state, 0
@@ -500,8 +499,7 @@ def _finalize_pending(reason='manual'):
         buf  = _pending_buf
         meta = _pending_meta
         _pending_buf = _pending_meta = _pending_reason = None
-        cfg_now = load_filter()
-        _ensayo_state = 'ARMADO' if cfg_now.get('auto_record') else 'IDLE'
+        _ensayo_state = 'IDLE'
     name = _save_session(buf, meta) if buf else None
     if name:
         _upload_async(name)
@@ -526,8 +524,7 @@ def _discard_pending():
             return False
         rows = len(_pending_buf)
         _pending_buf = _pending_meta = _pending_reason = None
-        cfg_now = load_filter()
-        _ensayo_state = 'ARMADO' if cfg_now.get('auto_record') else 'IDLE'
+        _ensayo_state = 'IDLE'
     socketio.emit('ensayo', {
         'state':  _ensayo_state,
         'reason': 'descartado',
@@ -567,14 +564,8 @@ def process_raw(raw, t0):
         trig_kg  = float(ep['trigger_kg'])
         trig_bar = float(ep['trigger_bar'])
 
-        # sincronizar ARMADO con el toggle auto_record
-        if cfg['auto_record'] and _ensayo_state == 'IDLE':
-            _ensayo_state = 'ARMADO'
-            _reset_ensayo_runtime()
-            socketio.emit('ensayo', {'state': 'ARMADO', 'reason': 'armado'})
-        elif not cfg['auto_record'] and _ensayo_state == 'ARMADO':
-            _ensayo_state = 'IDLE'
-            socketio.emit('ensayo', {'state': 'IDLE', 'reason': 'desarmado'})
+        # ARMADO solo se entra explícitamente al presionar Grabar con auto_record=true.
+        # El estado NO se sincroniza con el toggle en este loop (cambio de UX 2026-06).
 
         if _ensayo_state == 'ARMADO':
             # inicio: carga >= trigger_kg O presión >= trigger_bar, con histéresis
@@ -967,19 +958,32 @@ def post_ensayo_alarms():
 @login_required
 @write_blocked
 def rec_start():
-    """{manual:true} (default) salta directo a GRABANDO ignorando triggers."""
+    """Si auto_record=true en filter_config: pasa a ARMADO (espera trigger).
+    Si no: salta directo a GRABANDO ignorando triggers."""
     global _ensayo_state, _recording, _session_buf, _t_record_start, _dimension_record_offset
+    cfg = load_filter()
+    auto = bool(cfg.get('auto_record'))
     with _lock:
         if _recording:
             return jsonify({'ok': False, 'msg': 'ya estaba grabando', 'state': _ensayo_state})
         if _ensayo_state == 'PENDIENTE_DESCARTE':
             return jsonify({'ok': False, 'msg': 'hay un ensayo pendiente de descartar/guardar', 'state': _ensayo_state})
+        if _ensayo_state == 'ARMADO':
+            return jsonify({'ok': False, 'msg': 'ya estaba armado', 'state': _ensayo_state})
         # operador automático desde el usuario logueado
         _u = session.get('user') or {}
         _ensayo_meta['operador'] = _u.get('name') or _u.get('email') or ('Local' if _LOCAL_MODE else '')
-        # Tara desde la última lectura EN VIVO (el buffer está vacío al iniciar)
-        live = dict(_last_data)
-        _start_grabando(live)
+        if auto:
+            # ARMAR: esperar trigger (carga/presión) sin grabar aún
+            _ensayo_state = 'ARMADO'
+            _reset_ensayo_runtime()
+        else:
+            # MANUAL: grabar de inmediato (tara desde lectura en vivo)
+            live = dict(_last_data)
+            _start_grabando(live)
+    if auto:
+        socketio.emit('ensayo', {'state': 'ARMADO', 'reason': 'armado'})
+        return jsonify({'ok': True, 'state': 'ARMADO'})
     socketio.emit('ensayo', {'state': 'GRABANDO', 'reason': 'manual'})
     return jsonify({'ok': True, 'state': 'GRABANDO'})
 
