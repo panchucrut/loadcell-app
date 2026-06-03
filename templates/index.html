@@ -149,11 +149,6 @@
 <div id="ptContainer">
   <div class="pt-ctrl">
     <span><span class="pt-dot" id="cDot"></span><span id="cStatus">Desconectado</span></span>
-    <label for="cPort">Puerto</label>
-    <select id="cPort"><option value="">— sin puertos —</option></select>
-    <button class="pt-b-refresh" id="cRefresh" title="Refrescar puertos">↻</button>
-    <button class="pt-b-conn" id="cConnect">Conectar</button>
-    <span style="opacity:.4">|</span>
     <button class="pt-b-rec" id="cRec" disabled>⏺ Grabar</button>
     <label class="pt-auto-sw" title="Cuando está activado, al presionar Grabar el sistema queda armado esperando carga/presión.">
       <input type="checkbox" id="cAuto"><span class="pt-auto-track"></span><span class="pt-auto-lbl">Auto</span>
@@ -214,7 +209,6 @@
     _currentTipo=s.currentTipo||'';_tipoColors=s.tipoColors||{};
     _$('cDot').className='pt-dot'+(_connected?' on':'');
     _$('cStatus').textContent=_connected?'Conectado':'Desconectado';
-    var bC=_$('cConnect'); bC.textContent=_connected?'Desconectar':'Conectar'; bC.className=_connected?'pt-b-disc':'pt-b-conn';
     var bR=_$('cRec'); bR.disabled=!_connected;
     if(_recording){bR.textContent='⏹ Detener';bR.className='pt-b-stop';}
     else if(_armed){bR.textContent='⏹ Cancelar';bR.className='pt-b-cancel';}
@@ -224,12 +218,6 @@
     else if(_armed){badge.style.display='inline';badge.style.color='#fcd34d';bdot.className='pt-dot armed';btxt.textContent='ESPERANDO';}
     else{badge.style.display='none';}
     var swA=_$('cAuto'); if(swA&&document.activeElement!==swA) swA.checked=_autoRecord;
-    var portSel=_$('cPort'),curP=portSel.value||s.currentPort||'';
-    portSel.textContent='';
-    var ports=s.ports||[];
-    if(!ports.length){var o=document.createElement('option');o.value='';o.textContent='— sin puertos —';portSel.appendChild(o);}
-    for(var i=0;i<ports.length;i++){var o=document.createElement('option');o.value=ports[i].value;o.textContent=ports[i].label;portSel.appendChild(o);}
-    if(curP) portSel.value=curP; portSel.disabled=_connected;
     var tipoSel=_$('cTipo'),curT=tipoSel.value||_currentTipo;
     tipoSel.textContent='';
     var tipos=s.tipos||[];
@@ -275,11 +263,6 @@
     if(m.type==='state') applyState(m);
     else if(m.type==='data'||(!m.type&&typeof m.total!=='undefined')) applyData(m);
   };
-  _$('cConnect').addEventListener('click',function(){
-    if(_connected) sendCmd({cmd:'connect'});
-    else{var p=_$('cPort').value;if(!p){alert('Selecciona un puerto.');return;}sendCmd({cmd:'connect',port:p});}
-  });
-  _$('cRefresh').addEventListener('click',function(){sendCmd({cmd:'refreshPorts'});});
   _$('cRec').addEventListener('click',function(){sendCmd({cmd:'record'});});
   _$('cAuto').addEventListener('change',function(){sendCmd({cmd:'setAutoRecord',value:_$('cAuto').checked});});
   _$('cTipo').addEventListener('change',function(){
