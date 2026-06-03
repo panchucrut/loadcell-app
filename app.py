@@ -296,6 +296,8 @@ def save_dimension_cal(sc):
 
 _above_count = 0
 _below_count = 0
+_armed_baseline_load = 0.0   # carga al momento de armar (para trigger por delta)
+_armed_baseline_press = 0.0  # presión al momento de armar (para trigger por delta)
 
 # ── Fase A: máquina de estados del ensayo ───────────────────────────────────────
 # IDLE              : no escucha (auto_record off, o detenido)
@@ -318,6 +320,7 @@ def _reset_ensayo_runtime():
     """Limpia el estado runtime del ensayo (no toca _ensayo_state)."""
     global _above_count, _below_count, _peak_total, _peak_pressure
     global _stab_ref_total, _stab_ref_press, _stab_t0
+    global _armed_baseline_load, _armed_baseline_press
     _above_count = 0
     _below_count = 0
     _peak_total = 0.0
@@ -325,6 +328,8 @@ def _reset_ensayo_runtime():
     _stab_ref_total = None
     _stab_ref_press = None
     _stab_t0 = None
+    _armed_baseline_load = 0.0
+    _armed_baseline_press = 0.0
 
 def load_cal():
     global _cal_cache
@@ -568,8 +573,11 @@ def process_raw(raw, t0):
         # El estado NO se sincroniza con el toggle en este loop (cambio de UX 2026-06).
 
         if _ensayo_state == 'ARMADO':
-            # inicio: carga >= trigger_kg O presión >= trigger_bar, con histéresis
-            if total >= trig_kg or pressure >= trig_bar:
+            # inicio: DELTA de carga/presión respecto al baseline capturado al armar
+            # >= trigger_kg O trigger_bar, con histéresis (trigger_count muestras).
+            delta_load  = total - _armed_baseline_load
+            delta_press = pressure - _armed_baseline_press
+            if delta_load >= trig_kg or delta_press >= trig_bar:
                 _above_count += 1
                 if _above_count >= int(ep['trigger_count']):
                     with _lock:
@@ -961,6 +969,7 @@ def rec_start():
     """Si auto_record=true en filter_config: pasa a ARMADO (espera trigger).
     Si no: salta directo a GRABANDO ignorando triggers."""
     global _ensayo_state, _recording, _session_buf, _t_record_start, _dimension_record_offset
+    global _armed_baseline_load, _armed_baseline_press
     cfg = load_filter()
     auto = bool(cfg.get('auto_record'))
     with _lock:
@@ -974,9 +983,14 @@ def rec_start():
         _u = session.get('user') or {}
         _ensayo_meta['operador'] = _u.get('name') or _u.get('email') or ('Local' if _LOCAL_MODE else '')
         if auto:
-            # ARMAR: esperar trigger (carga/presión) sin grabar aún
+            # ARMAR: esperar trigger (delta de carga/presión) sin grabar aún
             _ensayo_state = 'ARMADO'
             _reset_ensayo_runtime()
+            # Capturar baseline desde la última lectura en vivo: el trigger compara
+            # el delta respecto a esta carga/presión, no contra cero.
+            live_now = dict(_last_data)
+            _armed_baseline_load = sum(live_now.get(c, 0.0) for c in LOADCELL_IDS)
+            _armed_baseline_press = live_now.get(PRESSURE_IDS[0], 0.0) if PRESSURE_IDS else 0.0
         else:
             # MANUAL: grabar de inmediato (tara desde lectura en vivo)
             live = dict(_last_data)
@@ -1229,6 +1243,58 @@ def edit_session_meta(name):
     with open(meta_path, 'w') as f:
         json.dump(meta, f, indent=2, ensure_ascii=False)
     return jsonify({'ok': True, 'meta': meta})
+
+# Renombrar ensayo: mueve .csv, .xlsx, _meta.json y _foto.*
+@app.route('/api/sessions/<name>/rename', methods=['POST'])
+@login_required
+@write_blocked
+def rename_session(name):
+    name = _safe_name(name)
+    body = request.json or {}
+    new_name = (body.get('new_name') or '').strip()
+    if not new_name:
+        return jsonify({'error': 'new_name requerido'}), 400
+    # _safe_name aborta con 400 si el formato es inválido
+    new_name = _safe_name(new_name)
+    if new_name == name:
+        return jsonify({'ok': True, 'name': name, 'msg': 'sin cambios'})
+    # validar que el ensayo original exista (al menos uno de los artefactos)
+    csv_old = os.path.join(SESSIONS_DIR, name + '.csv')
+    if not os.path.exists(csv_old):
+        return jsonify({'error': 'Sesión no encontrada'}), 404
+    # validar que el destino no exista (cualquier artefacto)
+    candidate_exts = ['.csv', '.xlsx', '_meta.json']
+    foto_exts = ['.jpg', '.jpeg', '.png', '.heic', '.heif', '.webp']
+    for ext in candidate_exts:
+        if os.path.exists(os.path.join(SESSIONS_DIR, new_name + ext)):
+            return jsonify({'error': f'Ya existe un ensayo con el nombre {new_name}'}), 409
+    for ext in foto_exts:
+        if os.path.exists(os.path.join(SESSIONS_DIR, new_name + '_foto' + ext)):
+            return jsonify({'error': f'Ya existe un ensayo con el nombre {new_name}'}), 409
+    # mover archivos (sin sobreescribir; si algo falla, intentar rollback básico)
+    moved = []
+    try:
+        for ext in candidate_exts:
+            src = os.path.join(SESSIONS_DIR, name + ext)
+            if os.path.exists(src):
+                dst = os.path.join(SESSIONS_DIR, new_name + ext)
+                os.rename(src, dst)
+                moved.append((src, dst))
+        for ext in foto_exts:
+            src = os.path.join(SESSIONS_DIR, name + '_foto' + ext)
+            if os.path.exists(src):
+                dst = os.path.join(SESSIONS_DIR, new_name + '_foto' + ext)
+                os.rename(src, dst)
+                moved.append((src, dst))
+    except OSError as e:
+        # rollback
+        for src, dst in moved:
+            try:
+                os.rename(dst, src)
+            except OSError:
+                pass
+        return jsonify({'error': f'Error al renombrar: {e}'}), 500
+    return jsonify({'ok': True, 'name': new_name, 'old_name': name})
 
 # F2.5: foto del ensayo
 @app.route('/api/sessions/<name>/foto', methods=['POST'])

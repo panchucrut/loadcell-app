@@ -60,10 +60,12 @@
       background: #e8f0fe; color: #0969da; border: 1px solid #c8d8fa; }
     .tipo-badge { font-size: 0.65rem; padding: 1px 6px; border-radius: 10px;
       font-weight: 600; }
-    .tipo-comp_cubo    { background:#fef3c7; color:#92400e; border:1px solid #fcd34d; }
-    .tipo-comp_piso    { background:#dcfce7; color:#14532d; border:1px solid #86efac; }
-    .tipo-def_esquina  { background:#ede9fe; color:#4c1d95; border:1px solid #c4b5fd; }
-    .tipo-def_total    { background:#fee2e2; color:#7f1d1d; border:1px solid #fca5a5; }
+    .tipo-comp_cubo       { background:#fef3c7; color:#92400e; border:1px solid #fcd34d; }
+    .tipo-comp_piso       { background:#dcfce7; color:#14532d; border:1px solid #86efac; }
+    .tipo-comp_full_piso  { background:#cffafe; color:#155e75; border:1px solid #67e8f9; }
+    .tipo-def_esquina     { background:#ede9fe; color:#4c1d95; border:1px solid #c4b5fd; }
+    .tipo-def_total       { background:#fee2e2; color:#7f1d1d; border:1px solid #fca5a5; }
+    .tipo-custom          { background:#f3f4f6; color:#374151; border:1px solid #d1d5db; }
   </style>
 </head>
 <body>
@@ -100,13 +102,15 @@
       <div class="row g-3">
         <div class="col-xl-9">
           <div class="card p-3 mb-3">
-            <!-- #6: bloque del ensayo activo ARRIBA, con selector de tipo destacado -->
+            <!-- #6: bloque del ensayo activo ARRIBA, con selector de tipo destacado (coloreado) -->
             <div id="ensayoChip" class="mb-2 d-flex align-items-center flex-wrap gap-2">
-              <span class="text-muted" style="font-size:0.8rem">Tipo de Ensayo:</span>
-              <select id="monitorTipoSel" class="form-select form-select-sm fw-semibold" style="width:auto;font-size:1.15rem"
+              <span class="text-muted" style="font-size:0.85rem">Tipo de Ensayo:</span>
+              <select id="monitorTipoSel"
+                      style="font-size:1.5rem;font-weight:800;padding:5px 18px;border-radius:10px;background:#7c3aed;color:#fff;border:2px solid rgba(0,0,0,.12);text-transform:uppercase;letter-spacing:.03em;cursor:pointer;box-shadow:0 3px 12px rgba(0,0,0,.18);font-family:inherit"
                       onchange="setTipoFromMonitor(this.value)" title="Seleccionar tipo de ensayo"></select>
-              <span id="ensayoChipTipo" class="tipo-badge fw-bold" style="font-size:1.3rem;padding:4px 14px"></span>
               <span id="ensayoChipTitulo" class="text-muted ms-1" style="font-size:0.95rem"></span>
+              <!-- ensayoChipTipo oculto: solo para mantener referencia interna (_ensayoBroadcast) -->
+              <span id="ensayoChipTipo" style="display:none"></span>
             </div>
             <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
               <div class="d-flex gap-2 align-items-center">
@@ -121,7 +125,7 @@
               </div>
               <div class="d-flex gap-2 align-items-center">
                 <span class="text-muted">Ventana:</span>
-                <select id="winSel" class="form-select form-select-sm" style="width:80px" onchange="windowSec=+this.value">
+                <select id="winSel" class="form-select form-select-sm" style="width:80px" onchange="windowSec=+this.value; if(typeof renderChart==='function') renderChart();">
                   <option value="30">30 s</option>
                   <option value="60" selected>60 s</option>
                   <option value="120">2 min</option>
@@ -711,6 +715,11 @@
       <div class="modal-body">
         <input type="hidden" id="editMetaName">
         <div class="mb-2">
+          <label class="form-label mb-0 text-muted" style="font-size:0.75rem">Nombre del ensayo</label>
+          <input type="text" class="form-control form-control-sm" id="emNombre" maxlength="200" placeholder="solo letras, números, guion y guion bajo">
+          <div class="text-muted" style="font-size:0.68rem">⚠ Cambiar el nombre renombra los archivos (.csv, .xlsx, _meta.json, foto). Si el ensayo ya se subió a SharePoint, la copia remota mantendrá el nombre anterior.</div>
+        </div>
+        <div class="mb-2">
           <label class="form-label mb-0 text-muted" style="font-size:0.75rem">Material</label>
           <input type="text" class="form-control form-control-sm" id="emMaterial" maxlength="80">
         </div>
@@ -762,18 +771,20 @@ const CELL_LABELS = _LOADCELLS.map((s,i) => s.label || `Celda ${i+1}`);
 const MAX_PTS   = 3000;
 
 const TIPO_LABELS = {
-  comp_cubo:   'Comp. cubo',
-  comp_piso:   'Comp. piso',
-  def_esquina: 'Def. esquina',
-  def_total:   'Def. total',
+  comp_cubo:      'Comp. cubo',
+  comp_piso:      'Comp. piso',
+  comp_full_piso: 'Comp. full piso',
+  def_esquina:    'Def. esquina',
+  def_total:      'Def. total',
 };
 
 // Fase C: color estable por tipo (overrides base alineados al borde CSS .tipo-*)
 const TIPO_COLORS = {
-  comp_cubo:   '#d97706',
-  comp_piso:   '#16a34a',
-  def_esquina: '#7c3aed',
-  def_total:   '#dc2626',
+  comp_cubo:      '#d97706',
+  comp_piso:      '#16a34a',
+  comp_full_piso: '#0891b2',
+  def_esquina:    '#7c3aed',
+  def_total:      '#dc2626',
 };
 function tipoColor(tipo){
   if(!tipo) return '#7c3aed';
@@ -790,6 +801,7 @@ let _sesResizeInit = false;
 // sort/filter estado tabla sesiones
 let _sesSortCol = 'fecha', _sesSortDir = 'desc';
 let tBuf=[], cBufs=Array.from({length:9},()=>[]), sBuf=[], pBuf=[];
+let _chartT0 = null;  // referencia para eje X relativo (se setea al primer dato y al recortar)
 let _currentMeta = {tipo:'comp_cubo', material:'', dimensiones:'', operador:'', notas:'', titulo:''};
 let _pendingFotoName = null; // nombre de sesión al que subir foto
 
@@ -1030,10 +1042,17 @@ function distLive(d){
 }
 socket.on('data', d=>{
   if(paused)return;
+  if(_chartT0===null) _chartT0 = d.t;
   tBuf.push(d.t);
   CELL_KEYS.forEach((k,i)=>cBufs[i].push(d[k]));
   sBuf.push(distLive(d)); pBuf.push(d.pressure);
-  if(tBuf.length>MAX_PTS){tBuf.shift();cBufs.forEach(b=>b.shift());sBuf.shift();pBuf.shift();}
+  // En ventana móvil aplica MAX_PTS; en "Todo" (windowSec=0) un tope alto de seguridad.
+  const _LIM = (windowSec>0) ? MAX_PTS : 50000;
+  if(tBuf.length>_LIM){
+    tBuf.shift(); cBufs.forEach(b=>b.shift()); sBuf.shift(); pBuf.shift();
+    // si se descartó el primer dato, recalibrar referencia para que el eje siga arrancando en 0
+    if(tBuf.length) _chartT0 = tBuf[0];
+  }
   renderChart(); updateStats(d); checkAlarm(d);
   _ensayoBroadcast(d);
 });
@@ -1059,7 +1078,8 @@ function getSlice(){
 }
 function renderChart(){
   const{t,cells,s,p}=getSlice();
-  const labels=t.map(v=>v.toFixed(1));
+  const t0 = (_chartT0!==null) ? _chartT0 : (t[0]||0);
+  const labels=t.map(v=>(v-t0).toFixed(1));
   // Chart 1: celdas vs tiempo + presión
   chartCarga.data.labels=labels;
   cells.forEach((c,i)=>{ chartCarga.data.datasets[i].data=c; });
@@ -1089,6 +1109,7 @@ function updateStats(d){
 function togglePause(){paused=!paused;document.getElementById('pauseBtn').textContent=paused?'▶ Reanudar':'⏸ Pausar';}
 function clearChart(){
   tBuf=[];cBufs=Array.from({length:9},()=>[]);sBuf=[];pBuf=[];
+  _chartT0 = null;
   chartCarga.data.labels=[];chartCarga.data.datasets.forEach(ds=>{ds.data=[];});chartCarga.update('none');
   chartDist.data.labels=[];chartDist.data.datasets[0].data=[];chartDist.update('none');
   chartCargaDist.data.datasets[0].data=[];chartCargaDist.update('none');
@@ -1307,13 +1328,15 @@ function updateEnsayoChip(meta){
   const tipoBadge = document.getElementById('ensayoChipTipo');
   const tituloEl  = document.getElementById('ensayoChipTitulo');
   chip.classList.remove('d-none');
-  tipoBadge.className = `tipo-badge tipo-${meta.tipo}`;
-  tipoBadge.textContent = TIPO_LABELS[meta.tipo]||(_tiposCache&&_tiposCache[meta.tipo])||meta.tipo;
+  // tipoBadge ahora está oculto pero se usa internamente (broadcast); guardar la etiqueta visible
+  const tipoLabel = TIPO_LABELS[meta.tipo] || (_tiposCache && _tiposCache[meta.tipo]) || meta.tipo || '';
+  tipoBadge.textContent = tipoLabel;
   tituloEl.textContent = meta.material ? `· ${meta.material}` : '';
   if(meta.operador) tituloEl.textContent += ` · ${meta.operador}`;
-  // Fase C: sincronizar selector de Monitor + aplicar color de tipo
+  // Fase C: sincronizar selector de Monitor + colorearlo según el tipo
   const mSel = document.getElementById('monitorTipoSel');
   if(mSel && mSel.value !== meta.tipo) mSel.value = meta.tipo;
+  if(mSel){ mSel.style.background = tipoColor(meta.tipo); }
   applyTipoColor(meta.tipo);
 }
 
@@ -1325,8 +1348,6 @@ function applyTipoColor(tipo){
     ds.borderColor=c; ds.backgroundColor=c+'22';
     chartCargaDist.update('none');
   }
-  const badge=document.getElementById('ensayoChipTipo');
-  if(badge) badge.style.boxShadow=`inset 0 0 0 2px ${c}`;
 }
 
 // Fase C: cambio rápido de tipo desde la pestaña Monitor
@@ -1497,8 +1518,8 @@ function loadSessions(){
     filtered.sort((a,b)=>{
       const ma=a.meta||{},mb=b.meta||{};
       let va,vb;
-      if(_sesSortCol==='tipo'){va=TIPO_LABELS[ma.tipo||'']||ma.tipo||'';vb=TIPO_LABELS[mb.tipo||'']||mb.tipo||'';}
-      else if(_sesSortCol==='nombre'){va=a.name.replace(/^(comp_cubo_|comp_piso_|def_esquina_|def_total_|sesion_)/,'');vb=b.name.replace(/^(comp_cubo_|comp_piso_|def_esquina_|def_total_|sesion_)/,'');}
+      if(_sesSortCol==='tipo'){va=TIPO_LABELS[ma.tipo||'']||(_tiposCache&&_tiposCache[ma.tipo||''])||ma.tipo||'';vb=TIPO_LABELS[mb.tipo||'']||(_tiposCache&&_tiposCache[mb.tipo||''])||mb.tipo||'';}
+      else if(_sesSortCol==='nombre'){va=a.name.replace(/^(comp_cubo_|comp_piso_|comp_full_piso_|def_esquina_|def_total_|sesion_)/,'');vb=b.name.replace(/^(comp_cubo_|comp_piso_|comp_full_piso_|def_esquina_|def_total_|sesion_)/,'');}
       else if(_sesSortCol==='comentario'){va=ma.comentario||'';vb=mb.comentario||'';}
       else{va=ma.timestamp||a.name;vb=mb.timestamp||b.name;}
       const cmp=va<vb?-1:va>vb?1:0;
@@ -1509,9 +1530,9 @@ function loadSessions(){
     tbody.innerHTML=filtered.map(s=>{
       const meta=s.meta||{};
       const tipo=meta.tipo||'';
-      const tipoLabel=TIPO_LABELS[tipo]||'';
-      const tipoCss=tipo?`tipo-badge tipo-${tipo}`:'';
-      const lbl=s.name.replace(/^(comp_cubo_|comp_piso_|def_esquina_|def_total_|sesion_)/,'');
+      const tipoLabel=TIPO_LABELS[tipo]||(_tiposCache&&_tiposCache[tipo])||'';
+      const tipoCss=tipo?(TIPO_LABELS[tipo]?`tipo-badge tipo-${tipo}`:'tipo-badge tipo-custom'):'';
+      const lbl=s.name.replace(/^(comp_cubo_|comp_piso_|comp_full_piso_|def_esquina_|def_total_|sesion_)/,'');
       const fecha=_tsFecha(meta); const hora=_tsHora(meta);
       const comentario=meta.comentario||'';
       const sel=_selSet.has(s.name);
@@ -1559,6 +1580,7 @@ function editSessionMeta(name){
     const m = s.meta||{};
     document.getElementById('editMetaName').value = name;
     document.getElementById('editMetaTitle').textContent = name;
+    document.getElementById('emNombre').value      = name;
     document.getElementById('emMaterial').value    = m.material||'';
     document.getElementById('emDimensiones').value = m.dimensiones||'';
     document.getElementById('emOperador').value    = m.operador||'';
@@ -1569,7 +1591,14 @@ function editSessionMeta(name){
 }
 
 function saveSessionMeta(){
-  const name = document.getElementById('editMetaName').value;
+  const oldName = document.getElementById('editMetaName').value;
+  const newName = (document.getElementById('emNombre').value||'').trim();
+  // Validar nuevo nombre con la misma regex del backend
+  if(!newName){ alert('El nombre no puede quedar vacío.'); return; }
+  if(!/^[A-Za-z0-9_\-]{1,200}$/.test(newName)){
+    alert('Nombre inválido. Solo letras, números, guión y guión bajo (máx 200 caracteres).');
+    return;
+  }
   const body = {
     material:    document.getElementById('emMaterial').value,
     dimensiones: document.getElementById('emDimensiones').value,
@@ -1577,15 +1606,28 @@ function saveSessionMeta(){
     notas:       document.getElementById('emNotas').value,
     comentario:  document.getElementById('emComentario').value,
   };
-  fetch(`/api/sessions/${name}/meta`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
-    .then(r=>{if(!r.ok)throw 0;return r.json();})
-    .then(d=>{
-      if(d.ok){
-        bootstrap.Modal.getInstance(document.getElementById('editMetaModal')).hide();
-        loadSessions();
-      }
-    })
-    .catch(()=>alert('No se pudo guardar'));
+  const saveMetaThen = (effectiveName)=>{
+    fetch(`/api/sessions/${effectiveName}/meta`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+      .then(r=>{if(!r.ok)throw 0;return r.json();})
+      .then(d=>{
+        if(d.ok){
+          bootstrap.Modal.getInstance(document.getElementById('editMetaModal')).hide();
+          loadSessions();
+        }
+      })
+      .catch(()=>alert('No se pudo guardar la metadata'));
+  };
+  if(newName !== oldName){
+    fetch(`/api/sessions/${oldName}/rename`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({new_name:newName})})
+      .then(r=>r.json().then(d=>({ok:r.ok,d})))
+      .then(({ok,d})=>{
+        if(!ok){ alert('No se pudo renombrar: '+(d.error||d.msg||'')); return; }
+        saveMetaThen(newName);
+      })
+      .catch(()=>alert('No se pudo renombrar'));
+  } else {
+    saveMetaThen(oldName);
+  }
 }
 
 function toggleStar(name){
@@ -1787,7 +1829,7 @@ socket.on('ensayo', e=>{
   };
   switch(e.state){
     case 'GRABANDO':
-      recording=true; armed=false; if(e.reason!=='manual') clearChart();
+      recording=true; armed=false; clearChart();
       recBtn.textContent='⏹ Detener';
       recBadge.classList.remove('d-none');
       recBadge.textContent='● REC';
@@ -2478,12 +2520,12 @@ function openEnsayoScreen(){
   .val{font-size:9.5vmin;font-weight:800;line-height:1;font-variant-numeric:tabular-nums;margin:.5vmin 0}
   .unit{font-size:2.4vmin;font-weight:600;opacity:.7}
   .sub{font-size:1.7vmin;opacity:.6;margin-top:.4vmin}
-  .alarm-inp{display:flex;gap:.5vmin;align-items:center;margin-top:.8vmin;font-size:1.4vmin;opacity:.85;background:rgba(0,0,0,.3);padding:.4vmin .8vmin;border-radius:.6vmin}
-  .alarm-inp-lbl{font-size:1.4vmin;opacity:.7;font-weight:600;text-transform:uppercase;letter-spacing:.03em}
-  .aInp{background:rgba(0,0,0,.5);color:#fef3c7;border:1px solid rgba(255,255,255,.25);border-radius:.4vmin;padding:.3vmin .6vmin;width:9vmin;font-size:1.5vmin;font-family:inherit;text-align:right;font-variant-numeric:tabular-nums;-moz-appearance:textfield}
+  .alarm-inp{display:flex;gap:.7vmin;align-items:center;margin-top:1.1vmin;font-size:2.1vmin;opacity:.9;background:rgba(0,0,0,.3);padding:.6vmin 1.2vmin;border-radius:.8vmin}
+  .alarm-inp-lbl{font-size:2.1vmin;opacity:.75;font-weight:600;text-transform:uppercase;letter-spacing:.03em}
+  .aInp{background:rgba(0,0,0,.5);color:#fef3c7;border:1px solid rgba(255,255,255,.25);border-radius:.5vmin;padding:.45vmin .9vmin;width:13.5vmin;font-size:2.25vmin;font-family:inherit;text-align:right;font-variant-numeric:tabular-nums;-moz-appearance:textfield}
   .aInp::-webkit-outer-spin-button,.aInp::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
   .aInp:focus{outline:none;border-color:#fbbf24;background:rgba(251,191,36,.15)}
-  .aUnit{font-size:1.4vmin;opacity:.6}
+  .aUnit{font-size:2.1vmin;opacity:.6}
   .cells{display:flex;flex-wrap:wrap;gap:.7vmin;justify-content:center;padding:0 1vmin}
   .cell{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:.8vmin;padding:.5vmin 1.1vmin;font-size:1.9vmin;font-variant-numeric:tabular-nums}
   .cell b{font-weight:800}
