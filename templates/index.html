@@ -229,6 +229,10 @@
     </div>
 
     <!-- ═══════════════════════════ ENSAYOS ════════════════════════════════ -->
+    <!-- ═══════════════════ TAB ENSAYOS — FROZEN ══════════════════════════════
+         PESTAÑA CERRADA: no modificar sin autorización explícita de Pancho.
+         Última revisión: 2026-06 (tabla sort+filtro+checkboxes+íconos protección)
+         ════════════════════════════════════════════════════════════════════ -->
     <div class="tab-pane fade{% if consulta_mode %} show active{% endif %}" id="tabEnsayos">
       <div class="row g-3">
         <div class="col-12">
@@ -1494,7 +1498,7 @@ function loadSessions(){
         <td style="padding:4px 6px;font-size:0.72rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:0" title="${escapeHtml(comentario)}">${comentario?escapeHtml(comentario):'<span class="text-muted">—</span>'}</td>
         <td style="padding:4px 6px;white-space:nowrap" onclick="event.stopPropagation()">
           <button class="btn btn-sm p-0" style="font-size:0.85rem;color:${starred?'#f59e0b':'var(--muted)'}" onclick="toggleStar('${s.name}')" title="${starred?'Quitar destacado':'Destacar'}">★</button>
-          <button class="btn btn-sm p-0 ms-1" style="font-size:0.8rem;color:${importante?'#dc3545':'#9ca3af'}" onclick="toggleImportante('${s.name}')" title="${importante?'Importante (no borrable)':'Marcar importante'}">🔒</button>
+          <button class="btn btn-sm p-0 ms-1" style="font-size:0.8rem;color:${importante?'#dc3545':'#9ca3af'}" onclick="toggleImportante('${s.name}')" title="${importante?'Protegido — no borrable. Click para desproteger':'Sin protección — click para proteger de borrado'}">  ${importante?'🔒':'○'}</button>
           <button class="btn btn-sm p-0 ms-1" style="font-size:0.8rem;color:${uploaded?'#16a34a':'var(--muted)'}" onclick="reupload('${s.name}')" title="${upTitle}">☁${uploaded?'︎':''}</button>
           <button class="btn btn-sm p-0 ms-1" style="font-size:0.8rem;color:var(--accent)" onclick="editSessionMeta('${s.name}')" title="Editar">✏️</button>
         </td>
