@@ -255,10 +255,10 @@
                 <colgroup>
                   <col style="width:34px">
                   <col style="width:100px">
-                  <col style="width:auto;min-width:120px">
+                  <col style="width:130px">
                   <col style="width:88px">
                   <col style="width:62px">
-                  <col style="width:180px">
+                  <col>
                   <col style="width:88px">
                 </colgroup>
                 <thead class="sticky-top" style="background:var(--surface);z-index:2">
@@ -1424,12 +1424,15 @@ function _updateSelCount(){
   if(el) el.textContent=_selSet.size>0?`${_selSet.size} seleccionado${_selSet.size!==1?'s':''}`:'' ;
 }
 function initColResize(){
+  const cols=Array.from(document.querySelectorAll('#sesTable colgroup col'));
   document.querySelectorAll('#sesTable th.ses-th').forEach(th=>{
     const h=th.querySelector('.col-resizer'); if(!h) return;
+    const thIdx=Array.from(th.parentElement.children).indexOf(th);
+    const col=cols[thIdx];
     h.addEventListener('mousedown',e=>{
       e.preventDefault(); e.stopPropagation();
       const sx=e.pageX, sw=th.offsetWidth;
-      const mv=e2=>{th.style.width=Math.max(40,sw+e2.pageX-sx)+'px';};
+      const mv=e2=>{const w=Math.max(40,sw+e2.pageX-sx)+'px'; if(col) col.style.width=w;};
       const up=()=>{document.removeEventListener('mousemove',mv);document.removeEventListener('mouseup',up);};
       document.addEventListener('mousemove',mv); document.addEventListener('mouseup',up);
     });
@@ -1498,7 +1501,7 @@ function loadSessions(){
         <td style="padding:4px 6px;font-size:0.72rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:0" title="${escapeHtml(comentario)}">${comentario?escapeHtml(comentario):'<span class="text-muted">—</span>'}</td>
         <td style="padding:4px 6px;white-space:nowrap" onclick="event.stopPropagation()">
           <button class="btn btn-sm p-0" style="font-size:0.85rem;color:${starred?'#f59e0b':'var(--muted)'}" onclick="toggleStar('${s.name}')" title="${starred?'Quitar destacado':'Destacar'}">★</button>
-          <button class="btn btn-sm p-0 ms-1" style="font-size:0.8rem;color:${importante?'#dc3545':'#9ca3af'}" onclick="toggleImportante('${s.name}')" title="${importante?'Protegido — no borrable. Click para desproteger':'Sin protección — click para proteger de borrado'}">  ${importante?'🔒':'○'}</button>
+          <button class="btn btn-sm p-0 ms-1" style="font-size:0.8rem;color:${importante?'#dc3545':'#9ca3af'}" onclick="event.stopPropagation();toggleImportante('${s.name}')" title="${importante?'Protegido — no borrable. Click para desproteger':'Sin protección — click para proteger de borrado'}">${importante?'🔒':'○'}</button>
           <button class="btn btn-sm p-0 ms-1" style="font-size:0.8rem;color:${uploaded?'#16a34a':'var(--muted)'}" onclick="reupload('${s.name}')" title="${upTitle}">☁${uploaded?'︎':''}</button>
           <button class="btn btn-sm p-0 ms-1" style="font-size:0.8rem;color:var(--accent)" onclick="editSessionMeta('${s.name}')" title="Editar">✏️</button>
         </td>
@@ -1564,9 +1567,10 @@ function toggleStar(name){
 }
 
 function toggleImportante(name){
-  fetch(`/api/sessions/${name}/importante`,{method:'POST'}).then(r=>r.json()).then(d=>{
-    if(d.ok) loadSessions();
-  });
+  fetch(`/api/sessions/${name}/importante`,{method:'POST'})
+    .then(r=>{if(!r.ok)throw new Error('HTTP '+r.status);return r.json();})
+    .then(d=>{if(d.ok) loadSessions();})
+    .catch(e=>console.error('toggleImportante:',e));
 }
 
 function reupload(name){
