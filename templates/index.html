@@ -43,6 +43,11 @@
     ::-webkit-scrollbar { width: 5px; }
     ::-webkit-scrollbar-track { background: var(--bg); }
     ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    #sesTable th.ses-th { position:relative; overflow:hidden; white-space:nowrap; }
+    #sesTable th.ses-th .col-resizer { position:absolute;right:0;top:0;bottom:0;width:5px;cursor:col-resize;z-index:1;background:transparent; }
+    #sesTable th.ses-th .col-resizer:hover { background:var(--border); }
+    #sesTable tbody tr:hover td { background:#f0f3f8; }
+    #sesTable tbody tr.table-primary td { background:#dbeafe; }
     .nav-tabs .nav-link { color: var(--muted); }
     .nav-tabs .nav-link.active { color: var(--text); font-weight: 600; }
     .modal-content { background: var(--surface); border: 1px solid var(--border); color: var(--text); }
@@ -228,26 +233,53 @@
       <div class="row g-3">
         <div class="col-12">
           <div class="card p-3">
-            <div class="d-flex justify-content-between align-items-center mb-2">
-              <span class="fw-semibold">Ensayos guardados</span>
-              <div class="d-flex gap-1">
-                <button class="btn btn-sm btn-outline-secondary py-0 px-2" onclick="loadSessions()">↺</button>
-                <button class="btn btn-sm btn-outline-secondary py-0 px-2" id="btnSelMode" onclick="toggleSelMode()" title="Selección múltiple">☑</button>
-              </div>
-            </div>
-            <!-- T9: multi-select action bar -->
-            <div id="selBar" class="d-none mb-2 d-flex gap-1 align-items-center flex-wrap">
-              <span id="selCount" class="text-muted" style="font-size:0.75rem">0 seleccionados</span>
-              <div class="ms-auto d-flex gap-1 flex-wrap">
+            <!-- Toolbar siempre visible -->
+            <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-1">
+              <span class="fw-semibold">Ensayos guardados &nbsp;<span id="selCount" class="text-muted fw-normal" style="font-size:0.75rem"></span></span>
+              <div class="d-flex gap-1 align-items-center flex-wrap">
                 <button class="btn btn-sm btn-outline-secondary py-0 px-2" onclick="selectAllSessions()" title="Seleccionar todos">Todos</button>
                 <button class="btn btn-sm btn-outline-warning py-0 px-2" onclick="bulkStar()" title="Destacar seleccionados">★</button>
-                <button class="btn btn-sm btn-outline-success py-0 px-2" onclick="bulkUpload()" title="Subir seleccionados a SharePoint">☁</button>
+                <button class="btn btn-sm btn-outline-success py-0 px-2" onclick="bulkUpload()" title="Subir a SharePoint">☁</button>
                 <button class="btn btn-sm btn-outline-primary py-0 px-2" onclick="downloadZip()" title="Descargar ZIP">⬇ ZIP</button>
                 <button class="btn btn-sm btn-outline-danger py-0 px-2" onclick="bulkDelete()" title="Eliminar seleccionados">🗑</button>
-                <button class="btn btn-sm btn-outline-secondary py-0 px-2" onclick="clearSelMode()" title="Cerrar selección">✕</button>
+                <button class="btn btn-sm btn-outline-secondary py-0 px-2" onclick="loadSessions()" title="Refrescar">↺</button>
               </div>
             </div>
-            <div id="sessionList" style="max-height:65vh;overflow-y:auto"></div>
+            <!-- Tabla con sort + filtros por columna -->
+            <div style="overflow-x:auto;max-height:65vh;overflow-y:auto">
+              <table class="table table-sm mb-0" id="sesTable" style="table-layout:fixed;width:100%;min-width:580px">
+                <colgroup>
+                  <col style="width:34px">
+                  <col style="width:100px">
+                  <col style="width:auto;min-width:120px">
+                  <col style="width:88px">
+                  <col style="width:62px">
+                  <col style="width:180px">
+                  <col style="width:88px">
+                </colgroup>
+                <thead class="sticky-top" style="background:var(--surface);z-index:2">
+                  <tr>
+                    <th style="padding:4px 6px"><input type="checkbox" id="sesChkAll" onclick="toggleAllSes(this)"></th>
+                    <th class="ses-th" onclick="sesSort('tipo')" style="cursor:pointer;user-select:none;padding:4px 6px">Tipo<span id="srt_tipo" style="margin-left:3px"></span><span class="col-resizer"></span></th>
+                    <th class="ses-th" onclick="sesSort('nombre')" style="cursor:pointer;user-select:none;padding:4px 6px">Nombre<span id="srt_nombre" style="margin-left:3px"></span><span class="col-resizer"></span></th>
+                    <th class="ses-th" onclick="sesSort('fecha')" style="cursor:pointer;user-select:none;padding:4px 6px">Fecha<span id="srt_fecha" style="margin-left:3px">↓</span><span class="col-resizer"></span></th>
+                    <th class="ses-th" onclick="sesSort('hora')" style="cursor:pointer;user-select:none;padding:4px 6px">Hora<span id="srt_hora" style="margin-left:3px"></span><span class="col-resizer"></span></th>
+                    <th class="ses-th" onclick="sesSort('comentario')" style="cursor:pointer;user-select:none;padding:4px 6px">Comentarios<span id="srt_comentario" style="margin-left:3px"></span><span class="col-resizer"></span></th>
+                    <th style="padding:4px 6px"></th>
+                  </tr>
+                  <tr>
+                    <th style="padding:2px 4px"></th>
+                    <th style="padding:2px 4px"><select id="sfTipo" class="form-select form-select-sm" style="font-size:0.7rem;padding:1px 4px" onchange="loadSessions()"><option value="">Todo</option></select></th>
+                    <th style="padding:2px 4px"><input id="sfNombre" class="form-control form-control-sm" style="font-size:0.7rem;padding:1px 4px" placeholder="Buscar…" oninput="loadSessions()"></th>
+                    <th style="padding:2px 4px"><input id="sfFecha" type="date" class="form-control form-control-sm" style="font-size:0.7rem;padding:1px 4px" onchange="loadSessions()"></th>
+                    <th style="padding:2px 4px"><input id="sfHora" class="form-control form-control-sm" style="font-size:0.7rem;padding:1px 4px" placeholder="HH:MM" oninput="loadSessions()"></th>
+                    <th style="padding:2px 4px"><input id="sfComent" class="form-control form-control-sm" style="font-size:0.7rem;padding:1px 4px" placeholder="Buscar…" oninput="loadSessions()"></th>
+                    <th style="padding:2px 4px"><button class="btn btn-sm p-0" style="font-size:0.7rem;color:var(--muted)" onclick="clearSesFilters()" title="Limpiar filtros">✕ filtros</button></th>
+                  </tr>
+                </thead>
+                <tbody id="sessionList"></tbody>
+              </table>
+            </div>
             <div id="compareBar" class="mt-2 d-none d-flex gap-2">
               <button class="btn btn-sm btn-outline-primary" onclick="doCompare()">Comparar</button>
               <button class="btn btn-sm btn-outline-secondary" onclick="clearCompare()" title="Quitar">✕</button>
@@ -744,9 +776,11 @@ function tipoColor(tipo){
 }
 
 let paused=false, recording=false, connected=false, windowSec=60, selectedSes=null;
-// T9: multi-select state
-let _selMode = false;
+// T9: multi-select state (always on)
 const _selSet = new Set();
+let _sesResizeInit = false;
+// sort/filter estado tabla sesiones
+let _sesSortCol = 'fecha', _sesSortDir = 'desc';
 let tBuf=[], cBufs=Array.from({length:9},()=>[]), sBuf=[], pBuf=[];
 let _currentMeta = {tipo:'comp_cubo', material:'', dimensiones:'', operador:'', notas:'', titulo:''};
 let _pendingFotoName = null; // nombre de sesión al que subir foto
@@ -1352,67 +1386,125 @@ function saveCal(){
     .then(()=>bootstrap.Modal.getInstance(document.getElementById('calModal')).hide());
 }
 
-// ── Sessions F2.4 ─────────────────────────────────────────────────────────────
-function loadSessions(){
-  fetch('/api/sessions').then(r=>r.json()).then(list=>{
-    const el=document.getElementById('sessionList');
-    if(!list.length){el.innerHTML='<div class="text-muted small">Sin sesiones guardadas</div>';return;}
-    // Orden: destacados primero; dentro de cada grupo, más recientes arriba (timestamp desc)
-    list.sort((a,b) => {
-      const sa=(b.meta?.starred?1:0)-(a.meta?.starred?1:0);
-      if(sa) return sa;
-      const ta=(b.meta?.timestamp||b.name), tb=(a.meta?.timestamp||a.name);
-      return ta < tb ? -1 : ta > tb ? 1 : 0;
+// ── Sessions tabla con sort + filtros ─────────────────────────────────────────
+function _tsFecha(meta){
+  const m=(meta.timestamp||'').match(/^(\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})/);
+  return m?`${m[3]}/${m[2]}/${m[1]}`:'';
+}
+function _tsHora(meta){
+  const m=(meta.timestamp||'').match(/^(\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})/);
+  return m?`${m[4]}:${m[5]}`:'';
+}
+function sesSort(col){
+  if(_sesSortCol===col) _sesSortDir=_sesSortDir==='asc'?'desc':'asc';
+  else { _sesSortCol=col; _sesSortDir=col==='fecha'?'desc':'asc'; }
+  loadSessions();
+}
+function clearSesFilters(){
+  ['sfTipo','sfNombre','sfFecha','sfHora','sfComent'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
+  loadSessions();
+}
+function updateSortInd(){
+  ['tipo','nombre','fecha','hora','comentario'].forEach(c=>{
+    const el=document.getElementById('srt_'+c);
+    if(el) el.textContent=_sesSortCol===c?(_sesSortDir==='asc'?'↑':'↓'):'';
+  });
+}
+function toggleAllSes(chk){
+  document.querySelectorAll('.sel-chk').forEach(c=>{c.checked=chk.checked;if(chk.checked)_selSet.add(c.dataset.name);else _selSet.delete(c.dataset.name);});
+  _updateSelCount();
+  document.querySelectorAll('#sessionList tr').forEach(tr=>tr.classList.toggle('table-primary',chk.checked));
+}
+function _updateSelCount(){
+  const el=document.getElementById('selCount');
+  if(el) el.textContent=_selSet.size>0?`${_selSet.size} seleccionado${_selSet.size!==1?'s':''}`:'' ;
+}
+function initColResize(){
+  document.querySelectorAll('#sesTable th.ses-th').forEach(th=>{
+    const h=th.querySelector('.col-resizer'); if(!h) return;
+    h.addEventListener('mousedown',e=>{
+      e.preventDefault(); e.stopPropagation();
+      const sx=e.pageX, sw=th.offsetWidth;
+      const mv=e2=>{th.style.width=Math.max(40,sw+e2.pageX-sx)+'px';};
+      const up=()=>{document.removeEventListener('mousemove',mv);document.removeEventListener('mouseup',up);};
+      document.addEventListener('mousemove',mv); document.addEventListener('mouseup',up);
     });
-    el.innerHTML=list.map(s=>{
-      const meta = s.meta||{};
-      const tipo  = meta.tipo||'';
-      const tipoLabel = TIPO_LABELS[tipo]||'';
-      const tipoCss   = tipo ? `tipo-badge tipo-${tipo}` : '';
-      const label = s.name.replace(/^(comp_cubo_|comp_piso_|def_esquina_|def_total_|sesion_)/,'');
-      const sel   = selectedSes===s.name?'selected':'';
-      const starred = meta.starred;
-      const starIcon = starred ? '★' : '☆';
-      const starColor = starred ? '#f59e0b' : 'var(--muted)';
-      const importante = meta.importante;
-      const impIcon = importante ? '🔒' : '🔓';
-      const impColor = importante ? '#dc3545' : '#9ca3af';
-      const comentario = meta.comentario || '';
-      const uploaded = meta.uploaded === true;
-      const upTitle = uploaded ? ('Subido a SharePoint' + (meta.upload_ts?' ('+meta.upload_ts+')':'')) : (meta.upload_detail ? 'No subido: '+escapeHtml(meta.upload_detail) : 'No subido. Click para subir');
-      const upIcon = uploaded ? '☁︎' : '☁';
-      const upColor = uploaded ? '#16a34a' : 'var(--muted)';
-      const fechaHora = fmtTimestamp(meta.timestamp);
-      const fechaLine = fechaHora ? `<span class="text-muted" style="font-size:0.7rem">🕘 ${fechaHora}</span>` : '';
-      const comLine = comentario ? `<div class="mt-1 p-2" style="font-size:0.72rem;white-space:pre-wrap;word-break:break-word;background:#f6f8fb;border-radius:4px;line-height:1.35">💬 ${escapeHtml(comentario)}</div>` : '';
-      const materialLine = meta.material ? `<span class="text-muted" style="font-size:0.68rem">${escapeHtml(meta.material)}${meta.dimensiones?' · '+escapeHtml(meta.dimensiones):''}</span>` : '';
-      const opLine = meta.operador ? `<span class="text-muted" style="font-size:0.68rem"> · ${escapeHtml(meta.operador)}</span>` : '';
-      const chk = _selMode ? `<input type="checkbox" class="form-check-input me-2 sel-chk" data-name="${s.name}" ${_selSet.has(s.name)?'checked':''} onclick="event.stopPropagation();toggleSelItem('${s.name}',this.checked)" style="cursor:pointer">` : '';
-      const clickFn = _selMode ? `toggleSelItem('${s.name}',!document.querySelector('.sel-chk[data-name=\\'${s.name}\\']')?.checked)` : `selectSession('${s.name}')`;
-      return `<div class="session-item ${sel}" style="padding:8px 10px" onclick="${clickFn}">
-        <div class="d-flex justify-content-between align-items-start">
-          <div class="d-flex align-items-center flex-grow-1" style="min-width:0">
-            ${chk}
-            <div style="min-width:0">
-              <div class="d-flex align-items-center" style="gap:6px;flex-wrap:wrap">
-                ${tipoLabel ? `<span class="${tipoCss}">${tipoLabel}</span>` : ''}
-                <span style="font-size:0.82rem;font-weight:500">${label}</span>
-              </div>
-              <div class="mt-1">${fechaLine}</div>
-            </div>
-          </div>
-          <div class="d-flex gap-1 flex-shrink-0">
-            <button class="btn btn-sm p-0" style="font-size:0.9rem;color:${starColor};line-height:1" onclick="event.stopPropagation();toggleStar('${s.name}')" title="${starred?'Quitar destacado':'Destacar'}">${starIcon}</button>
-            <button class="btn btn-sm p-0 ms-1" style="font-size:0.85rem;line-height:1;color:${impColor}" onclick="event.stopPropagation();toggleImportante('${s.name}')" title="${importante?'Importante (no borrable). Click para desmarcar':'Marcar como importante (bloquea borrado)'}">${impIcon}</button>
-            <button class="btn btn-sm p-0 ms-1" style="font-size:0.85rem;line-height:1;color:${upColor}" onclick="event.stopPropagation();reupload('${s.name}')" title="${upTitle}">${upIcon}</button>
-            <button class="btn btn-sm p-0 ms-1" style="font-size:0.8rem;line-height:1;color:var(--accent)" onclick="event.stopPropagation();editSessionMeta('${s.name}')" title="Editar datos del ensayo">✏️</button>
-          </div>
-        </div>
-        ${(materialLine||opLine)?`<div class="mt-1">${materialLine}${opLine}</div>`:''}
-        ${comLine}
-        <div class="text-muted mt-1" style="font-size:0.66rem">${s.rows} registros</div>
-      </div>`;
+  });
+}
+function loadSessions(){
+  const sfTipo=(document.getElementById('sfTipo')||{}).value||'';
+  const sfNombre=(document.getElementById('sfNombre')||{}).value||'';
+  const sfFecha=(document.getElementById('sfFecha')||{}).value||'';
+  const sfHora=(document.getElementById('sfHora')||{}).value||'';
+  const sfComent=(document.getElementById('sfComent')||{}).value||'';
+  fetch('/api/sessions').then(r=>r.json()).then(list=>{
+    const tbody=document.getElementById('sessionList');
+    // poblar select tipo
+    const sfTipoEl=document.getElementById('sfTipo');
+    if(sfTipoEl){
+      const tipos=[...new Set(list.map(s=>(s.meta||{}).tipo).filter(Boolean))];
+      const cur=sfTipoEl.value;
+      sfTipoEl.innerHTML='<option value="">Todo</option>'+tipos.map(t=>`<option value="${t}"${t===cur?' selected':''}>${escapeHtml(TIPO_LABELS[t]||t)}</option>`).join('');
+    }
+    if(!list.length){tbody.innerHTML='<tr><td colspan="7" class="text-muted small p-2">Sin sesiones guardadas</td></tr>';return;}
+    // filtrar
+    let filtered=list.filter(s=>{
+      const meta=s.meta||{};
+      if(sfTipo&&(meta.tipo||'')!==sfTipo) return false;
+      const lbl=s.name.replace(/^(comp_cubo_|comp_piso_|def_esquina_|def_total_|sesion_)/,'');
+      if(sfNombre&&!lbl.toLowerCase().includes(sfNombre.toLowerCase())) return false;
+      if(sfFecha){const m=(meta.timestamp||'').match(/^(\d{4})-(\d{2})-(\d{2})/);if(!m||`${m[1]}-${m[2]}-${m[3]}`!==sfFecha) return false;}
+      if(sfHora&&!_tsHora(meta).includes(sfHora)) return false;
+      if(sfComent&&!(meta.comentario||'').toLowerCase().includes(sfComent.toLowerCase())) return false;
+      return true;
+    });
+    // ordenar
+    filtered.sort((a,b)=>{
+      const ma=a.meta||{},mb=b.meta||{};
+      let va,vb;
+      if(_sesSortCol==='tipo'){va=TIPO_LABELS[ma.tipo||'']||ma.tipo||'';vb=TIPO_LABELS[mb.tipo||'']||mb.tipo||'';}
+      else if(_sesSortCol==='nombre'){va=a.name.replace(/^(comp_cubo_|comp_piso_|def_esquina_|def_total_|sesion_)/,'');vb=b.name.replace(/^(comp_cubo_|comp_piso_|def_esquina_|def_total_|sesion_)/,'');}
+      else if(_sesSortCol==='comentario'){va=ma.comentario||'';vb=mb.comentario||'';}
+      else{va=ma.timestamp||a.name;vb=mb.timestamp||b.name;}
+      const cmp=va<vb?-1:va>vb?1:0;
+      return _sesSortDir==='asc'?cmp:-cmp;
+    });
+    updateSortInd();
+    if(!filtered.length){tbody.innerHTML='<tr><td colspan="7" class="text-muted small p-2">Sin resultados para el filtro</td></tr>';return;}
+    tbody.innerHTML=filtered.map(s=>{
+      const meta=s.meta||{};
+      const tipo=meta.tipo||'';
+      const tipoLabel=TIPO_LABELS[tipo]||'';
+      const tipoCss=tipo?`tipo-badge tipo-${tipo}`:'';
+      const lbl=s.name.replace(/^(comp_cubo_|comp_piso_|def_esquina_|def_total_|sesion_)/,'');
+      const fecha=_tsFecha(meta); const hora=_tsHora(meta);
+      const comentario=meta.comentario||'';
+      const sel=_selSet.has(s.name);
+      const starred=meta.starred; const importante=meta.importante;
+      const uploaded=meta.uploaded===true;
+      const upTitle=uploaded?('Subido a SharePoint'+(meta.upload_ts?' ('+meta.upload_ts+')'  :'')):(meta.upload_detail?'No subido: '+escapeHtml(meta.upload_detail):'No subido. Click para subir');
+      return `<tr class="${sel?'table-primary':''}" onclick="selectSession('${s.name}')">
+        <td style="padding:4px 6px" onclick="event.stopPropagation()">
+          <input type="checkbox" class="form-check-input sel-chk" data-name="${s.name}" ${sel?'checked':''} onclick="toggleSelItem('${s.name}',this.checked)">
+        </td>
+        <td style="padding:4px 6px;font-size:0.75rem">${tipoLabel?`<span class="${tipoCss}">${tipoLabel}</span>`:'<span class="text-muted">—</span>'}</td>
+        <td style="padding:4px 6px;font-size:0.8rem;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHtml(lbl)}">${escapeHtml(lbl)}</td>
+        <td style="padding:4px 6px;font-size:0.75rem;white-space:nowrap">${fecha||'—'}</td>
+        <td style="padding:4px 6px;font-size:0.75rem;white-space:nowrap">${hora||'—'}</td>
+        <td style="padding:4px 6px;font-size:0.72rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:0" title="${escapeHtml(comentario)}">${comentario?escapeHtml(comentario):'<span class="text-muted">—</span>'}</td>
+        <td style="padding:4px 6px;white-space:nowrap" onclick="event.stopPropagation()">
+          <button class="btn btn-sm p-0" style="font-size:0.85rem;color:${starred?'#f59e0b':'var(--muted)'}" onclick="toggleStar('${s.name}')" title="${starred?'Quitar destacado':'Destacar'}">★</button>
+          <button class="btn btn-sm p-0 ms-1" style="font-size:0.8rem;color:${importante?'#dc3545':'#9ca3af'}" onclick="toggleImportante('${s.name}')" title="${importante?'Importante (no borrable)':'Marcar importante'}">🔒</button>
+          <button class="btn btn-sm p-0 ms-1" style="font-size:0.8rem;color:${uploaded?'#16a34a':'var(--muted)'}" onclick="reupload('${s.name}')" title="${upTitle}">☁${uploaded?'︎':''}</button>
+          <button class="btn btn-sm p-0 ms-1" style="font-size:0.8rem;color:var(--accent)" onclick="editSessionMeta('${s.name}')" title="Editar">✏️</button>
+        </td>
+      </tr>`;
     }).join('');
+    // checkbox "todos"
+    const chkAll=document.getElementById('sesChkAll');
+    if(chkAll) chkAll.checked=filtered.length>0&&filtered.every(s=>_selSet.has(s.name));
+    _updateSelCount();
+    if(!_sesResizeInit){_sesResizeInit=true;initColResize();}
   });
 }
 
@@ -1786,6 +1878,11 @@ function loadAnalisisList() {
       if (_anFilterFecha && _sesFecha(s) !== _anFilterFecha) return false;
       return true;
     });
+    // orden: más recientes primero
+    filtered.sort((a,b)=>{
+      const ta=(a.meta||{}).timestamp||a.name, tb=(b.meta||{}).timestamp||b.name;
+      return ta<tb?1:ta>tb?-1:0;
+    });
     if (!list.length) { el.innerHTML = '<div class="text-muted small">Sin sesiones grabadas</div>'; return; }
     if (!filtered.length) { el.innerHTML = '<div class="text-muted small">Sin ensayos para el filtro</div>'; return; }
     el.innerHTML = filtered.map((s, idx) => {
@@ -2046,36 +2143,29 @@ function clearAnalisis() {
   loadAnalisisList();
 }
 
-// T9: multi-select & ZIP download
-function toggleSelMode(){
-  _selMode = !_selMode;
-  _selSet.clear();
-  document.getElementById('selBar').classList.toggle('d-none', !_selMode);
-  document.getElementById('btnSelMode').classList.toggle('btn-secondary', _selMode);
-  document.getElementById('btnSelMode').classList.toggle('btn-outline-secondary', !_selMode);
-  loadSessions();
-}
+// T9: multi-select (checkboxes siempre visibles)
+function toggleSelMode(){ /* no-op: siempre activo */ }
 
 function clearSelMode(){
-  _selMode = false;
   _selSet.clear();
-  document.getElementById('selBar').classList.add('d-none');
-  document.getElementById('btnSelMode').classList.remove('btn-secondary');
-  document.getElementById('btnSelMode').classList.add('btn-outline-secondary');
+  _updateSelCount();
   loadSessions();
 }
 
 function toggleSelItem(name, checked){
   if(checked) _selSet.add(name); else _selSet.delete(name);
-  document.getElementById('selCount').textContent = `${_selSet.size} seleccionado${_selSet.size!==1?'s':''}`;
-  // sync checkbox visually
-  const chk = document.querySelector(`.sel-chk[data-name="${name}"]`);
-  if(chk) chk.checked = checked;
+  _updateSelCount();
+  const row=document.querySelector(`.sel-chk[data-name="${CSS.escape(name)}"]`);
+  if(row) row.closest('tr').classList.toggle('table-primary',checked);
+  const allChks=document.querySelectorAll('.sel-chk');
+  const chkAll=document.getElementById('sesChkAll');
+  if(chkAll&&allChks.length) chkAll.checked=Array.from(allChks).every(c=>c.checked);
 }
 
 function selectAllSessions(){
-  document.querySelectorAll('.sel-chk').forEach(c=>{ _selSet.add(c.dataset.name); c.checked=true; });
-  document.getElementById('selCount').textContent = `${_selSet.size} seleccionado${_selSet.size!==1?'s':''}`;
+  document.querySelectorAll('.sel-chk').forEach(c=>{_selSet.add(c.dataset.name);c.checked=true;c.closest('tr').classList.add('table-primary');});
+  const chkAll=document.getElementById('sesChkAll'); if(chkAll) chkAll.checked=true;
+  _updateSelCount();
 }
 
 function downloadZip(){
