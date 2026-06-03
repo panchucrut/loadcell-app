@@ -1193,6 +1193,15 @@ function keepPending(){
 // ── F2: ensayo metadata ───────────────────────────────────────────────────────
 // T7: tipos cache
 let _tiposCache = {};
+let _alarmsCache = {}; // {tipo: {alarm_total: 5000, alarm_max_cell: 1000, ...}}
+
+function loadAlarms(callback){
+  fetch('/api/ensayo/alarms').then(r=>r.json()).then(a=>{
+    _alarmsCache = a || {};
+    if(typeof _ensayoSendState==='function') _ensayoSendState();
+    if(callback) callback(_alarmsCache);
+  }).catch(e=>console.error('loadAlarms:', e));
+}
 
 function loadTipos(callback){
   fetch('/api/ensayo/tipos').then(r=>r.json()).then(tipos=>{
@@ -1271,6 +1280,7 @@ function loadEnsayoMeta(){
       const mSel=document.getElementById('monitorTipoSel');
       if(mSel && m.tipo && mSel.querySelector(`option[value="${m.tipo}"]`)) mSel.value=m.tipo;
     });
+    loadAlarms();
     updateEnsayoChip(m);
   });
 }
@@ -2337,47 +2347,70 @@ function _ensayoCmdInit(){
         if(sel){ sel.value = m.tipo; setTipoFromMonitor(m.tipo); }
         setTimeout(_ensayoSendState, 200);
       }
+      else if(m.cmd === 'setAlarm' && m.tipo && _tiposCache && _tiposCache[m.tipo] && m.alarms && typeof m.alarms === 'object'){
+        // validar claves y valores
+        const VALID = {alarm_total:1, alarm_max_cell:1, alarm_dimension:1, alarm_pressure:1};
+        const clean = {};
+        Object.keys(m.alarms).forEach(k=>{
+          if(!VALID[k]) return;
+          const v = m.alarms[k];
+          if(v === null || v === '' || v === undefined) { clean[k] = null; return; }
+          const n = parseFloat(v);
+          clean[k] = (isFinite(n) && n > 0) ? n : null;
+        });
+        fetch('/api/ensayo/alarms',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tipo:m.tipo, alarms:clean})})
+          .then(r=>{if(!r.ok)throw new Error('HTTP '+r.status); return r.json();})
+          .then(d=>{
+            if(d.ok){
+              _alarmsCache[m.tipo] = {..._alarmsCache[m.tipo]||{}, ...Object.fromEntries(Object.entries(clean).filter(([,v])=>v!==null))};
+              // eliminar claves null del cache
+              Object.entries(clean).forEach(([k,v])=>{ if(v===null && _alarmsCache[m.tipo]) delete _alarmsCache[m.tipo][k]; });
+              _ensayoSendState();
+            }
+          }).catch(e=>console.error('setAlarm:',e));
+      }
     }catch(e){ console.error('ensayoCmd:', e); }
   });
 }
 
-// Envía estado UI al popup (puertos, tipos, connected, recording)
+// Envía estado UI al popup (puertos, tipos, connected, recording, alarms, colores)
 function _ensayoSendState(){
   if(!_ensayoBChan){ try{ _ensayoBChan = new BroadcastChannel(_ENSAYO_CH); _ensayoCmdInit(); }catch(e){ return; } }
   const portSel = document.getElementById('portSelect');
   const tipoSel = document.getElementById('monitorTipoSel');
   const ports = portSel ? Array.from(portSel.options).filter(o=>o.value).map(o=>({value:o.value, label:o.textContent})) : [];
   const tipos = Object.entries(_tiposCache||{}).map(([k,v])=>({value:k, label:v}));
+  const currentTipo = tipoSel ? tipoSel.value : '';
+  const alarms = (_alarmsCache && _alarmsCache[currentTipo]) || {};
+  // colores de tipo: combina TIPO_COLORS hardcoded + fallback dinámico
+  const tipoColors = {};
+  Object.keys(_tiposCache||{}).forEach(k=>{ tipoColors[k] = (typeof TIPO_COLORS!=='undefined' && TIPO_COLORS[k]) || (typeof tipoColor==='function' ? tipoColor(k) : '#7c3aed'); });
   try{
     _ensayoBChan.postMessage({
       type:'state',
       connected: !!connected,
       recording: !!recording,
       currentPort: portSel ? portSel.value : '',
-      currentTipo: tipoSel ? tipoSel.value : '',
-      ports, tipos,
+      currentTipo,
+      ports, tipos, alarms, tipoColors,
     });
   }catch(e){}
 }
 function openEnsayoScreen(){
   const w = window.open('', 'sp_ensayo', 'width=1280,height=860');
   if(!w){ alert('Permite ventanas emergentes para abrir la pantalla de ensayo.'); return; }
-  // SEC: documento autocontenido, sin datos de usuario en el HTML estático.
-  // Datos llegan por BroadcastChannel y se insertan vía textContent / selectores controlados (no innerHTML).
+  // SEC: documento autocontenido. Datos llegan por BroadcastChannel y se insertan vía textContent.
   const doc = `<!doctype html><html lang="es"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Pantalla de ensayo</title>
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
-  html,body{height:100%;font-family:-apple-system,Segoe UI,Roboto,sans-serif;background:#0f172a;color:#f1f5f9;transition:background .15s}
-  body.alarm{background:#dc2626 !important;color:#fff}
-  body.alarm .card{background:rgba(0,0,0,.25) !important;border-color:rgba(255,255,255,.4) !important}
-  body.alarm .ctrl{background:rgba(0,0,0,.25) !important;border-color:rgba(255,255,255,.35) !important}
-  .wrap{height:100%;display:flex;flex-direction:column;padding:1.5vmin;gap:1.2vmin}
-  .ctrl{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);border-radius:1vmin;padding:1vmin 1.4vmin;display:flex;flex-wrap:wrap;align-items:center;gap:1vmin;font-size:1.8vmin}
+  html,body{height:100%;font-family:-apple-system,Segoe UI,Roboto,sans-serif;background:#0f172a;color:#f1f5f9}
+  .wrap{height:100%;display:flex;flex-direction:column;padding:1.2vmin;gap:1vmin}
+  .ctrl{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);border-radius:1vmin;padding:.9vmin 1.4vmin;display:flex;flex-wrap:wrap;align-items:center;gap:1vmin;font-size:1.8vmin}
   .ctrl label{font-size:1.5vmin;opacity:.7;text-transform:uppercase;letter-spacing:.04em;font-weight:600}
   .ctrl select{background:rgba(0,0,0,.35);color:#f1f5f9;border:1px solid rgba(255,255,255,.2);border-radius:.6vmin;padding:.6vmin 1vmin;font-size:1.7vmin;min-width:18vmin;font-family:inherit}
-  .ctrl button{border:0;border-radius:.6vmin;padding:.8vmin 1.6vmin;font-size:1.7vmin;font-weight:700;cursor:pointer;font-family:inherit;color:#fff;transition:filter .15s}
+  .ctrl button{border:0;border-radius:.6vmin;padding:.7vmin 1.4vmin;font-size:1.7vmin;font-weight:700;cursor:pointer;font-family:inherit;color:#fff;transition:filter .15s}
   .ctrl button:hover:not(:disabled){filter:brightness(1.15)}
   .ctrl button:disabled{opacity:.5;cursor:not-allowed}
   .b-conn{background:#16a34a}.b-disc{background:#dc2626}
@@ -2387,18 +2420,27 @@ function openEnsayoScreen(){
   .dot.on{background:#16a34a;box-shadow:0 0 .8vmin #16a34a}
   .dot.rec{background:#dc2626;animation:pulse 1s infinite}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
-  .head{display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:1vmin}
-  .ensayo{font-size:2.6vmin;font-weight:700;opacity:.85}
-  .alarmTxt{font-size:2.8vmin;font-weight:800;display:none}
-  body.alarm .alarmTxt{display:inline}
-  .grid{flex:1;display:grid;grid-template-columns:repeat(2,1fr);grid-template-rows:repeat(2,1fr);gap:1.2vmin}
-  .card{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.15);border-radius:1.5vmin;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:1vmin}
+  .head{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:1.5vmin;padding:.5vmin 1vmin}
+  .ensayo-wrap{display:flex;align-items:center;gap:1.5vmin;flex-wrap:wrap}
+  .ensayo-lbl{font-size:2.2vmin;opacity:.7;font-weight:500;letter-spacing:.02em}
+  .ensayo-badge{font-size:4.2vmin;font-weight:800;padding:.6vmin 2.4vmin;border-radius:1.2vmin;background:#7c3aed;color:#fff;text-transform:uppercase;letter-spacing:.03em;border:.3vmin solid rgba(0,0,0,.15);box-shadow:0 .4vmin 1.5vmin rgba(0,0,0,.3)}
+  .ensayo-name{font-size:2.6vmin;opacity:.85;font-weight:500;font-style:italic}
+  .grid{flex:1;display:grid;grid-template-columns:repeat(2,1fr);grid-template-rows:repeat(2,1fr);gap:1.2vmin;min-height:0}
+  .card{position:relative;background:rgba(255,255,255,.06);border:.3vmin solid rgba(255,255,255,.15);border-radius:1.5vmin;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:1vmin;transition:background .2s,border-color .2s,box-shadow .2s;overflow:hidden}
+  .card.alarm-active{background:rgba(220,38,38,.55);border-color:#fca5a5;animation:alarmPulse 1s infinite}
+  @keyframes alarmPulse{0%,100%{box-shadow:inset 0 0 0 rgba(239,68,68,0)}50%{box-shadow:inset 0 0 4vmin rgba(239,68,68,.6),0 0 3vmin rgba(239,68,68,.5)}}
   .lbl{font-size:2.2vmin;font-weight:600;opacity:.75;text-transform:uppercase;letter-spacing:.05em}
-  .val{font-size:10vmin;font-weight:800;line-height:1;font-variant-numeric:tabular-nums}
-  .unit{font-size:2.6vmin;font-weight:600;opacity:.7}
-  .sub{font-size:1.8vmin;opacity:.6;margin-top:.5vmin}
-  .cells{display:flex;flex-wrap:wrap;gap:.8vmin;justify-content:center;padding:0 1vmin}
-  .cell{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:.8vmin;padding:.6vmin 1.2vmin;font-size:2vmin;font-variant-numeric:tabular-nums}
+  .val{font-size:9.5vmin;font-weight:800;line-height:1;font-variant-numeric:tabular-nums;margin:.5vmin 0}
+  .unit{font-size:2.4vmin;font-weight:600;opacity:.7}
+  .sub{font-size:1.7vmin;opacity:.6;margin-top:.4vmin}
+  .alarm-inp{display:flex;gap:.5vmin;align-items:center;margin-top:.8vmin;font-size:1.4vmin;opacity:.85;background:rgba(0,0,0,.3);padding:.4vmin .8vmin;border-radius:.6vmin}
+  .alarm-inp-lbl{font-size:1.4vmin;opacity:.7;font-weight:600;text-transform:uppercase;letter-spacing:.03em}
+  .aInp{background:rgba(0,0,0,.5);color:#fef3c7;border:1px solid rgba(255,255,255,.25);border-radius:.4vmin;padding:.3vmin .6vmin;width:9vmin;font-size:1.5vmin;font-family:inherit;text-align:right;font-variant-numeric:tabular-nums;-moz-appearance:textfield}
+  .aInp::-webkit-outer-spin-button,.aInp::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+  .aInp:focus{outline:none;border-color:#fbbf24;background:rgba(251,191,36,.15)}
+  .aUnit{font-size:1.4vmin;opacity:.6}
+  .cells{display:flex;flex-wrap:wrap;gap:.7vmin;justify-content:center;padding:0 1vmin}
+  .cell{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:.8vmin;padding:.5vmin 1.1vmin;font-size:1.9vmin;font-variant-numeric:tabular-nums}
   .cell b{font-weight:800}
 </style></head><body>
 <div class="wrap">
@@ -2409,21 +2451,42 @@ function openEnsayoScreen(){
     <button class="b-refresh" id="cRefresh" title="Refrescar puertos">↻</button>
     <button class="b-conn" id="cConnect">Conectar</button>
     <span style="opacity:.4">|</span>
-    <label for="cTipo">Tipo de ensayo</label>
-    <select id="cTipo"><option value="">— sin tipos —</option></select>
-    <span style="opacity:.4">|</span>
     <button class="b-rec" id="cRec" disabled>⏺ Grabar</button>
     <span id="cRecBadge" style="display:none;color:#fecaca;font-weight:700"><span class="dot rec"></span>REC</span>
   </div>
   <div class="head">
-    <div class="ensayo" id="eEnsayo">—</div>
-    <div class="alarmTxt">🚨 ALERTA — LÍMITE ALCANZADO</div>
+    <div class="ensayo-wrap">
+      <span class="ensayo-lbl">Tipo de Ensayo:</span>
+      <select id="cTipo" style="font-size:3.2vmin;font-weight:800;padding:.5vmin 1.5vmin;border-radius:1vmin;background:#7c3aed;color:#fff;border:.3vmin solid rgba(0,0,0,.15);text-transform:uppercase;letter-spacing:.03em;font-family:inherit;cursor:pointer;box-shadow:0 .4vmin 1.5vmin rgba(0,0,0,.3)"><option value="">— sin tipos —</option></select>
+      <span class="ensayo-name" id="eEnsayo"></span>
+    </div>
   </div>
   <div class="grid">
-    <div class="card"><div class="lbl">Carga total</div><div class="val" id="eTotal">0.0</div><div class="unit">kg</div></div>
-    <div class="card"><div class="lbl">Celda máx.</div><div class="val" id="eMax">0.0</div><div class="unit">kg</div><div class="sub" id="eMaxName">—</div></div>
-    <div class="card"><div class="lbl">Distancia</div><div class="val" id="eDist">0.0</div><div class="unit">mm</div></div>
-    <div class="card"><div class="lbl">Presión</div><div class="val" id="ePress">0.0</div><div class="unit">bar</div></div>
+    <div class="card" data-key="total">
+      <div class="lbl">Carga total</div>
+      <div class="val" id="eTotal">0.0</div>
+      <div class="unit">kg</div>
+      <div class="alarm-inp"><span class="alarm-inp-lbl">🔔 Alarma</span><input type="number" class="aInp" data-key="total" placeholder="—" min="0" step="any"><span class="aUnit">kg</span></div>
+    </div>
+    <div class="card" data-key="max_cell">
+      <div class="lbl">Celda máx.</div>
+      <div class="val" id="eMax">0.0</div>
+      <div class="unit">kg</div>
+      <div class="sub" id="eMaxName">—</div>
+      <div class="alarm-inp"><span class="alarm-inp-lbl">🔔 Alarma</span><input type="number" class="aInp" data-key="max_cell" placeholder="—" min="0" step="any"><span class="aUnit">kg</span></div>
+    </div>
+    <div class="card" data-key="dimension">
+      <div class="lbl">Distancia</div>
+      <div class="val" id="eDist">0.0</div>
+      <div class="unit">mm</div>
+      <div class="alarm-inp"><span class="alarm-inp-lbl">🔔 Alarma</span><input type="number" class="aInp" data-key="dimension" placeholder="—" min="0" step="any"><span class="aUnit">mm</span></div>
+    </div>
+    <div class="card" data-key="pressure">
+      <div class="lbl">Presión</div>
+      <div class="val" id="ePress">0.0</div>
+      <div class="unit">bar</div>
+      <div class="alarm-inp"><span class="alarm-inp-lbl">🔔 Alarma</span><input type="number" class="aInp" data-key="pressure" placeholder="—" min="0" step="any"><span class="aUnit">bar</span></div>
+    </div>
   </div>
   <div class="cells" id="eCells"></div>
 </div>
@@ -2431,10 +2494,17 @@ function openEnsayoScreen(){
   var ch = new BroadcastChannel(${JSON.stringify(_ENSAYO_CH)});
   var $ = function(id){ return document.getElementById(id); };
   function f(n){ return (typeof n==='number' && isFinite(n)) ? n.toFixed(1) : '0.0'; }
-  var _connected=false, _recording=false;
+  var _connected=false, _recording=false, _currentTipo='', _tipoColors={};
   function sendCmd(o){ try{ o.type='cmd'; ch.postMessage(o); }catch(e){} }
+  function applyTipoColor(){
+    var sel = $('cTipo');
+    var col = (_currentTipo && _tipoColors[_currentTipo]) || '#7c3aed';
+    sel.style.background = col;
+  }
   function applyState(s){
     _connected=!!s.connected; _recording=!!s.recording;
+    _currentTipo = s.currentTipo || '';
+    _tipoColors = s.tipoColors || {};
     $('cDot').className = 'dot' + (_connected?' on':'');
     $('cStatus').textContent = _connected?'Conectado':'Desconectado';
     var bC = $('cConnect');
@@ -2446,26 +2516,42 @@ function openEnsayoScreen(){
     bR.className = _recording?'b-stop':'b-rec';
     $('cRecBadge').style.display = _recording?'inline':'none';
     // poblar puertos
-    var portSel = $('cPort'), cur = portSel.value || s.currentPort || '';
+    var portSel = $('cPort'), curP = portSel.value || s.currentPort || '';
     portSel.textContent = '';
     var ports = s.ports || [];
     if(!ports.length){ var o=document.createElement('option'); o.value=''; o.textContent='— sin puertos —'; portSel.appendChild(o); }
     for(var i=0;i<ports.length;i++){
       var o=document.createElement('option'); o.value=ports[i].value; o.textContent=ports[i].label; portSel.appendChild(o);
     }
-    if(cur) portSel.value = cur;
+    if(curP) portSel.value = curP;
     portSel.disabled = _connected;
     // poblar tipos
-    var tipoSel = $('cTipo'), curT = tipoSel.value || s.currentTipo || '';
+    var tipoSel = $('cTipo'), curT = tipoSel.value || _currentTipo;
     tipoSel.textContent = '';
     var tipos = s.tipos || [];
     if(!tipos.length){ var o=document.createElement('option'); o.value=''; o.textContent='— sin tipos —'; tipoSel.appendChild(o); }
     for(var i=0;i<tipos.length;i++){
       var o=document.createElement('option'); o.value=tipos[i].value; o.textContent=tipos[i].label; tipoSel.appendChild(o);
     }
-    if(s.currentTipo) tipoSel.value = s.currentTipo;
+    if(_currentTipo) tipoSel.value = _currentTipo;
     else if(curT) tipoSel.value = curT;
     tipoSel.disabled = _recording;
+    applyTipoColor();
+    // poblar inputs de alarma con valores del tipo actual (sin pisar input enfocado)
+    var alarms = s.alarms || {};
+    document.querySelectorAll('.aInp').forEach(function(inp){
+      if(document.activeElement === inp) return;
+      var v = alarms['alarm_'+inp.dataset.key];
+      inp.value = (v != null) ? v : '';
+    });
+  }
+  function checkCardAlarm(key, val){
+    var card = document.querySelector('.card[data-key="'+key+'"]');
+    if(!card) return;
+    var inp = card.querySelector('.aInp');
+    var raw = inp && inp.value ? parseFloat(inp.value) : NaN;
+    var on = isFinite(raw) && raw > 0 && isFinite(val) && val >= raw;
+    card.classList.toggle('alarm-active', on);
   }
   function applyData(d){
     $('eTotal').textContent = f(d.total);
@@ -2473,8 +2559,12 @@ function openEnsayoScreen(){
     $('eMaxName').textContent = (d.cellLabels && d.cellLabels[d.maxI]) ? d.cellLabels[d.maxI] : ('Celda ' + ((d.maxI||0)+1));
     $('eDist').textContent = f(d.dist);
     $('ePress').textContent = f(d.press);
-    $('eEnsayo').textContent = d.ensayo || '—';
-    document.body.classList.toggle('alarm', !!d.alarm);
+    $('eEnsayo').textContent = d.ensayo || '';
+    // alarmas independientes por indicador
+    checkCardAlarm('total', d.total);
+    checkCardAlarm('max_cell', d.maxV);
+    checkCardAlarm('dimension', d.dist);
+    checkCardAlarm('pressure', d.press);
     var cont = $('eCells');
     var cells = d.cells || [], labels = d.cellLabels || [];
     if(cont.childElementCount !== cells.length){
@@ -2501,14 +2591,34 @@ function openEnsayoScreen(){
   });
   $('cRefresh').addEventListener('click', function(){ sendCmd({cmd:'refreshPorts'}); });
   $('cRec').addEventListener('click', function(){ sendCmd({cmd:'record'}); });
-  $('cTipo').addEventListener('change', function(){ var v=$('cTipo').value; if(v) sendCmd({cmd:'setTipo', tipo:v}); });
+  $('cTipo').addEventListener('change', function(){
+    var v=$('cTipo').value; if(!v) return;
+    _currentTipo = v; applyTipoColor();
+    sendCmd({cmd:'setTipo', tipo:v});
+  });
+  // guardar alarmas con debounce al editar inputs
+  var _alarmTimer = null;
+  document.querySelectorAll('.aInp').forEach(function(inp){
+    inp.addEventListener('input', function(){
+      if(_alarmTimer) clearTimeout(_alarmTimer);
+      _alarmTimer = setTimeout(function(){
+        if(!_currentTipo){ alert('Selecciona un tipo de ensayo antes de configurar alarmas.'); return; }
+        var alarms = {};
+        document.querySelectorAll('.aInp').forEach(function(i){
+          var v = i.value.trim();
+          var n = v === '' ? null : parseFloat(v);
+          alarms['alarm_'+i.dataset.key] = (n != null && isFinite(n) && n > 0) ? n : null;
+        });
+        sendCmd({cmd:'setAlarm', tipo:_currentTipo, alarms:alarms});
+      }, 600);
+    });
+  });
   window.addEventListener('beforeunload', function(){ try{ ch.close(); }catch(e){} });
   // pedir estado inicial
   sendCmd({cmd:'getState'});
   sendCmd({cmd:'refreshPorts'});
 <\/script></body></html>`;
   w.document.open(); w.document.write(doc); w.document.close();
-  // forzar envío de estado tras abrir popup
   setTimeout(function(){ if(typeof _ensayoSendState==='function') _ensayoSendState(); }, 500);
   setTimeout(function(){ if(typeof _ensayoSendState==='function') _ensayoSendState(); }, 1500);
 }

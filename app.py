@@ -211,7 +211,9 @@ ENSAYO_CONFIG_FILE = os.path.join(BASE, 'ensayo_config.json')
 _ENSAYO_PARAM_KEYS = (
     'trigger_kg', 'trigger_bar', 'trigger_count', 'stop_count',
     'drop_enabled', 'drop_pct', 'stab_enabled', 'stab_pct', 'stab_secs',
+    'alarm_total', 'alarm_max_cell', 'alarm_dimension', 'alarm_pressure',
 )
+_ALARM_KEYS = ('alarm_total', 'alarm_max_cell', 'alarm_dimension', 'alarm_pressure')
 
 def _load_ensayo_config():
     if os.path.exists(ENSAYO_CONFIG_FILE):
@@ -906,12 +908,60 @@ def post_ensayo_config():
             clean[k] = bool(v)
         elif k in ('trigger_count', 'stop_count'):
             clean[k] = int(v)
+        elif k in _ALARM_KEYS:
+            # None / '' = sin alarma (no se guarda)
+            if v is None or v == '':
+                continue
+            clean[k] = float(v)
         else:
             clean[k] = float(v)
     full = _load_ensayo_config()
     full[tipo] = clean
     _save_ensayo_config(full)
     return jsonify({'ok': True, 'config': full})
+
+# Alarmas por tipo: GET devuelve mapa {tipo: {alarm_*: valor}}
+@app.route('/api/ensayo/alarms', methods=['GET'])
+@login_required
+def get_ensayo_alarms():
+    full = _load_ensayo_config()
+    out = {}
+    for tipo, params in full.items():
+        a = {k: params.get(k) for k in _ALARM_KEYS if params.get(k) is not None}
+        if a:
+            out[tipo] = a
+    return jsonify(out)
+
+# Alarmas: POST hace merge (solo actualiza claves alarm_*, conserva otros params).
+@app.route('/api/ensayo/alarms', methods=['POST'])
+@login_required
+@write_blocked
+def post_ensayo_alarms():
+    body = request.json or {}
+    tipo = (body.get('tipo') or '').strip()
+    alarms = body.get('alarms') or {}
+    if not tipo:
+        abort(400, 'tipo requerido')
+    if tipo not in ENSAYO_TIPOS:
+        abort(400, 'tipo no existe')
+    full = _load_ensayo_config()
+    cur = dict(full.get(tipo, {}))
+    for k in _ALARM_KEYS:
+        if k not in alarms:
+            continue
+        v = alarms[k]
+        if v is None or v == '':
+            cur.pop(k, None)
+        else:
+            try:
+                cur[k] = float(v)
+                if cur[k] <= 0:
+                    cur.pop(k, None)
+            except (TypeError, ValueError):
+                cur.pop(k, None)
+    full[tipo] = cur
+    _save_ensayo_config(full)
+    return jsonify({'ok': True, 'alarms': {k: cur.get(k) for k in _ALARM_KEYS if k in cur}})
 
 @app.route('/api/record/start', methods=['POST'])
 @login_required
