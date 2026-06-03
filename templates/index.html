@@ -73,7 +73,6 @@
 <nav class="navbar navbar-light px-3 py-2">
   <div class="d-flex align-items-center gap-3">
     <span class="navbar-brand fw-bold mb-0 text-primary">⚙ Sensores Prensa</span>
-    <button class="btn btn-danger fw-bold px-3" style="font-size:1rem" onclick="openEnsayoScreen()" title="Abrir pantalla grande para ensayo">🖥 Abrir pantalla para ensayo</button>
   </div>
   <div class="d-flex align-items-center gap-2 flex-wrap">
     <a class="btn btn-sm btn-outline-secondary" href="/manual" target="_blank">📖 Manual</a>
@@ -88,6 +87,7 @@
 
 <div class="container-fluid py-2">
   <ul class="nav nav-tabs mb-3" id="mainTabs">
+    {% if not consulta_mode %}<li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tabPantalla" id="tabPantallaLink">🖥 Pantalla</a></li>{% endif %}
     {% if not consulta_mode %}<li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#tabMonitor">Monitor</a></li>{% endif %}
     <li class="nav-item"><a class="nav-link{% if consulta_mode %} active{% endif %}" data-bs-toggle="tab" href="#tabEnsayos" id="tabEnsayosLink">Ensayos</a></li>
     <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tabAnalisis" id="tabAnalisisLink">Análisis</a></li>
@@ -96,6 +96,223 @@
   </ul>
 
   <div class="tab-content">
+
+    <!-- ════════════════════════ PANTALLA ENSAYO ═══════════════════════════ -->
+    {% if not consulta_mode %}
+    <div class="tab-pane fade" id="tabPantalla">
+<style>
+  #ptContainer{height:calc(100vh - 116px);display:flex;flex-direction:column;padding:1.2vmin;gap:1vmin;background:#0f172a;color:#f1f5f9}
+  #ptContainer .pt-ctrl{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);border-radius:1vmin;padding:.9vmin 1.4vmin;display:flex;flex-wrap:wrap;align-items:center;gap:1vmin;font-size:1.8vmin}
+  #ptContainer .pt-ctrl label{font-size:1.5vmin;opacity:.7;text-transform:uppercase;letter-spacing:.04em;font-weight:600}
+  #ptContainer .pt-ctrl select{background:rgba(0,0,0,.35);color:#f1f5f9;border:1px solid rgba(255,255,255,.2);border-radius:.6vmin;padding:.6vmin 1vmin;font-size:1.7vmin;min-width:18vmin;font-family:inherit}
+  #ptContainer .pt-ctrl button{border:0;border-radius:.6vmin;padding:.7vmin 1.4vmin;font-size:1.7vmin;font-weight:700;cursor:pointer;font-family:inherit;color:#fff;transition:filter .15s}
+  #ptContainer .pt-ctrl button:hover:not(:disabled){filter:brightness(1.15)}
+  #ptContainer .pt-ctrl button:disabled{opacity:.5;cursor:not-allowed}
+  #ptContainer .pt-b-conn{background:#16a34a}#ptContainer .pt-b-disc{background:#dc2626}
+  #ptContainer .pt-b-rec{background:#dc2626}#ptContainer .pt-b-stop{background:#ea580c}
+  #ptContainer .pt-b-cancel{background:#f59e0b;color:#1f2937}
+  #ptContainer .pt-b-refresh{background:rgba(255,255,255,.15);font-size:1.5vmin;padding:.5vmin .9vmin}
+  #ptContainer .pt-dot{display:inline-block;width:1.2vmin;height:1.2vmin;border-radius:50%;background:#6b7280;margin-right:.5vmin;vertical-align:middle}
+  #ptContainer .pt-dot.on{background:#16a34a;box-shadow:0 0 .8vmin #16a34a}
+  #ptContainer .pt-dot.rec{background:#dc2626;animation:ptPulse 1s infinite}
+  #ptContainer .pt-dot.armed{background:#f59e0b;animation:ptPulse 1.4s infinite}
+  @keyframes ptPulse{0%,100%{opacity:1}50%{opacity:.3}}
+  #ptContainer .pt-auto-sw{display:inline-flex;align-items:center;gap:.6vmin;cursor:pointer;user-select:none}
+  #ptContainer .pt-auto-sw input{display:none}
+  #ptContainer .pt-auto-track{display:inline-block;width:3.6vmin;height:1.8vmin;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);border-radius:1vmin;position:relative;transition:background .15s}
+  #ptContainer .pt-auto-track::after{content:"";position:absolute;top:.1vmin;left:.1vmin;width:1.4vmin;height:1.4vmin;background:#fff;border-radius:50%;transition:left .15s}
+  #ptContainer .pt-auto-sw input:checked + .pt-auto-track{background:#16a34a;border-color:#16a34a}
+  #ptContainer .pt-auto-sw input:checked + .pt-auto-track::after{left:1.95vmin}
+  #ptContainer .pt-auto-lbl{font-size:1.5vmin;opacity:.85;text-transform:uppercase;letter-spacing:.04em;font-weight:600}
+  #ptContainer .pt-head{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:1.5vmin;padding:.5vmin 1vmin}
+  #ptContainer .pt-ensayo-wrap{display:flex;align-items:center;gap:1.5vmin;flex-wrap:wrap}
+  #ptContainer .pt-ensayo-lbl{font-size:2.2vmin;opacity:.7;font-weight:500;letter-spacing:.02em}
+  #ptContainer .pt-ensayo-name{font-size:2.6vmin;opacity:.85;font-weight:500;font-style:italic}
+  #ptContainer .pt-grid{flex:1;display:grid;grid-template-columns:repeat(2,1fr);grid-template-rows:repeat(2,1fr);gap:1.2vmin;min-height:0}
+  #ptContainer .pt-card{position:relative;background:rgba(255,255,255,.06);border:.3vmin solid rgba(255,255,255,.15);border-radius:1.5vmin;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:1vmin;transition:background .2s,border-color .2s,box-shadow .2s;overflow:hidden}
+  #ptContainer .pt-card.pt-alarm-active{background:rgba(220,38,38,.55);border-color:#fca5a5;animation:ptAlarmPulse 1s infinite}
+  @keyframes ptAlarmPulse{0%,100%{box-shadow:inset 0 0 0 rgba(239,68,68,0)}50%{box-shadow:inset 0 0 4vmin rgba(239,68,68,.6),0 0 3vmin rgba(239,68,68,.5)}}
+  #ptContainer .pt-lbl{font-size:2.2vmin;font-weight:600;opacity:.75;text-transform:uppercase;letter-spacing:.05em}
+  #ptContainer .pt-val{font-size:9.5vmin;font-weight:800;line-height:1;font-variant-numeric:tabular-nums;margin:.5vmin 0}
+  #ptContainer .pt-unit{font-size:2.4vmin;font-weight:600;opacity:.7}
+  #ptContainer .pt-sub{font-size:1.7vmin;opacity:.6;margin-top:.4vmin}
+  #ptContainer .pt-alarm-inp{display:flex;gap:.7vmin;align-items:center;margin-top:1.1vmin;font-size:2.1vmin;opacity:.9;background:rgba(0,0,0,.3);padding:.6vmin 1.2vmin;border-radius:.8vmin}
+  #ptContainer .pt-alarm-inp-lbl{font-size:2.1vmin;opacity:.75;font-weight:600;text-transform:uppercase;letter-spacing:.03em}
+  #ptContainer .pt-aInp{background:rgba(0,0,0,.5);color:#fef3c7;border:1px solid rgba(255,255,255,.25);border-radius:.5vmin;padding:.45vmin .9vmin;width:13.5vmin;font-size:2.25vmin;font-family:inherit;text-align:right;font-variant-numeric:tabular-nums;-moz-appearance:textfield}
+  #ptContainer .pt-aInp::-webkit-outer-spin-button,#ptContainer .pt-aInp::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+  #ptContainer .pt-aInp:focus{outline:none;border-color:#fbbf24;background:rgba(251,191,36,.15)}
+  #ptContainer .pt-aUnit{font-size:2.1vmin;opacity:.6}
+  #ptContainer .pt-cells{display:flex;flex-wrap:wrap;gap:.7vmin;justify-content:center;padding:0 1vmin}
+  #ptContainer .pt-cell{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:.8vmin;padding:.5vmin 1.1vmin;font-size:1.9vmin;font-variant-numeric:tabular-nums}
+  #ptContainer .pt-cell b{font-weight:800}
+</style>
+<div id="ptContainer">
+  <div class="pt-ctrl">
+    <span><span class="pt-dot" id="cDot"></span><span id="cStatus">Desconectado</span></span>
+    <label for="cPort">Puerto</label>
+    <select id="cPort"><option value="">— sin puertos —</option></select>
+    <button class="pt-b-refresh" id="cRefresh" title="Refrescar puertos">↻</button>
+    <button class="pt-b-conn" id="cConnect">Conectar</button>
+    <span style="opacity:.4">|</span>
+    <button class="pt-b-rec" id="cRec" disabled>⏺ Grabar</button>
+    <label class="pt-auto-sw" title="Cuando está activado, al presionar Grabar el sistema queda armado esperando carga/presión.">
+      <input type="checkbox" id="cAuto"><span class="pt-auto-track"></span><span class="pt-auto-lbl">Auto</span>
+    </label>
+    <span id="cRecBadge" style="display:none;font-weight:700"><span class="pt-dot rec" id="cRecDot"></span><span id="cRecBadgeTxt">REC</span></span>
+  </div>
+  <div class="pt-head">
+    <div class="pt-ensayo-wrap">
+      <span class="pt-ensayo-lbl">Tipo de Ensayo:</span>
+      <select id="cTipo" style="font-size:3.2vmin;font-weight:800;padding:.5vmin 1.5vmin;border-radius:1vmin;background:#7c3aed;color:#fff;border:.3vmin solid rgba(0,0,0,.15);text-transform:uppercase;letter-spacing:.03em;font-family:inherit;cursor:pointer;box-shadow:0 .4vmin 1.5vmin rgba(0,0,0,.3)"><option value="">— sin tipos —</option></select>
+      <span class="pt-ensayo-name" id="eEnsayo"></span>
+    </div>
+  </div>
+  <div class="pt-grid">
+    <div class="pt-card" data-key="total">
+      <div class="pt-lbl">Carga total</div>
+      <div class="pt-val" id="eTotal">0.0</div>
+      <div class="pt-unit">kg</div>
+      <div class="pt-alarm-inp"><span class="pt-alarm-inp-lbl">🔔 Alarma</span><input type="number" class="pt-aInp" data-key="total" placeholder="—" min="0" step="any"><span class="pt-aUnit">kg</span></div>
+    </div>
+    <div class="pt-card" data-key="max_cell">
+      <div class="pt-lbl">Celda máx.</div>
+      <div class="pt-val" id="eMax">0.0</div>
+      <div class="pt-unit">kg</div>
+      <div class="pt-sub" id="eMaxName">—</div>
+      <div class="pt-alarm-inp"><span class="pt-alarm-inp-lbl">🔔 Alarma</span><input type="number" class="pt-aInp" data-key="max_cell" placeholder="—" min="0" step="any"><span class="pt-aUnit">kg</span></div>
+    </div>
+    <div class="pt-card" data-key="dimension">
+      <div class="pt-lbl">Distancia</div>
+      <div class="pt-val" id="eDist">0.0</div>
+      <div class="pt-unit">mm</div>
+      <div class="pt-alarm-inp"><span class="pt-alarm-inp-lbl">🔔 Alarma</span><input type="number" class="pt-aInp" data-key="dimension" placeholder="—" min="0" step="any"><span class="pt-aUnit">mm</span></div>
+    </div>
+    <div class="pt-card" data-key="pressure">
+      <div class="pt-lbl">Presión</div>
+      <div class="pt-val" id="ePress">0.0</div>
+      <div class="pt-unit">bar</div>
+      <div class="pt-alarm-inp"><span class="pt-alarm-inp-lbl">🔔 Alarma</span><input type="number" class="pt-aInp" data-key="pressure" placeholder="—" min="0" step="any"><span class="pt-aUnit">bar</span></div>
+    </div>
+  </div>
+  <div class="pt-cells" id="eCells"></div>
+</div>
+<script>
+(function(){
+  var ptCont = document.getElementById('ptContainer');
+  if(!ptCont) return;
+  var ch = new BroadcastChannel('sp_ensayo_screen');
+  var _$ = function(id){ return document.getElementById(id); };
+  function f(n){ return (typeof n==='number' && isFinite(n)) ? n.toFixed(1) : '0.0'; }
+  var _connected=false,_recording=false,_armed=false,_autoRecord=false,_currentTipo='',_tipoColors={};
+  function sendCmd(o){ try{ o.type='cmd'; ch.postMessage(o); }catch(e){} }
+  function applyTipoColor(){
+    var sel=_$('cTipo'), col=(_currentTipo&&_tipoColors[_currentTipo])||'#7c3aed';
+    sel.style.background=col;
+  }
+  function applyState(s){
+    _connected=!!s.connected;_recording=!!s.recording;_armed=!!s.armed;_autoRecord=!!s.autoRecord;
+    _currentTipo=s.currentTipo||'';_tipoColors=s.tipoColors||{};
+    _$('cDot').className='pt-dot'+(_connected?' on':'');
+    _$('cStatus').textContent=_connected?'Conectado':'Desconectado';
+    var bC=_$('cConnect'); bC.textContent=_connected?'Desconectar':'Conectar'; bC.className=_connected?'pt-b-disc':'pt-b-conn';
+    var bR=_$('cRec'); bR.disabled=!_connected;
+    if(_recording){bR.textContent='⏹ Detener';bR.className='pt-b-stop';}
+    else if(_armed){bR.textContent='⏹ Cancelar';bR.className='pt-b-cancel';}
+    else{bR.textContent='⏺ Grabar';bR.className='pt-b-rec';}
+    var badge=_$('cRecBadge'),bdot=_$('cRecDot'),btxt=_$('cRecBadgeTxt');
+    if(_recording){badge.style.display='inline';badge.style.color='#fecaca';bdot.className='pt-dot rec';btxt.textContent='REC';}
+    else if(_armed){badge.style.display='inline';badge.style.color='#fcd34d';bdot.className='pt-dot armed';btxt.textContent='ESPERANDO';}
+    else{badge.style.display='none';}
+    var swA=_$('cAuto'); if(swA&&document.activeElement!==swA) swA.checked=_autoRecord;
+    var portSel=_$('cPort'),curP=portSel.value||s.currentPort||'';
+    portSel.textContent='';
+    var ports=s.ports||[];
+    if(!ports.length){var o=document.createElement('option');o.value='';o.textContent='— sin puertos —';portSel.appendChild(o);}
+    for(var i=0;i<ports.length;i++){var o=document.createElement('option');o.value=ports[i].value;o.textContent=ports[i].label;portSel.appendChild(o);}
+    if(curP) portSel.value=curP; portSel.disabled=_connected;
+    var tipoSel=_$('cTipo'),curT=tipoSel.value||_currentTipo;
+    tipoSel.textContent='';
+    var tipos=s.tipos||[];
+    if(!tipos.length){var o=document.createElement('option');o.value='';o.textContent='— sin tipos —';tipoSel.appendChild(o);}
+    for(var i=0;i<tipos.length;i++){var o=document.createElement('option');o.value=tipos[i].value;o.textContent=tipos[i].label;tipoSel.appendChild(o);}
+    if(_currentTipo) tipoSel.value=_currentTipo; else if(curT) tipoSel.value=curT;
+    tipoSel.disabled=_recording||_armed; applyTipoColor();
+    var alarms=s.alarms||{};
+    ptCont.querySelectorAll('.pt-aInp').forEach(function(inp){
+      if(document.activeElement===inp) return;
+      var v=alarms['alarm_'+inp.dataset.key]; inp.value=(v!=null)?v:'';
+    });
+  }
+  function checkCardAlarm(key,val){
+    var card=ptCont.querySelector('.pt-card[data-key="'+key+'"]'); if(!card) return;
+    var inp=card.querySelector('.pt-aInp');
+    var raw=inp&&inp.value?parseFloat(inp.value):NaN;
+    card.classList.toggle('pt-alarm-active',isFinite(raw)&&raw>0&&isFinite(val)&&val>=raw);
+  }
+  function applyData(d){
+    _$('eTotal').textContent=f(d.total);
+    _$('eMax').textContent=f(d.maxV);
+    _$('eMaxName').textContent=(d.cellLabels&&d.cellLabels[d.maxI])?d.cellLabels[d.maxI]:('Celda '+((d.maxI||0)+1));
+    _$('eDist').textContent=f(d.dist);
+    _$('ePress').textContent=f(d.press);
+    _$('eEnsayo').textContent=d.ensayo||'';
+    checkCardAlarm('total',d.total);checkCardAlarm('max_cell',d.maxV);
+    checkCardAlarm('dimension',d.dist);checkCardAlarm('pressure',d.press);
+    var cont=_$('eCells'),cells=d.cells||[],labels=d.cellLabels||[];
+    if(cont.childElementCount!==cells.length){
+      cont.textContent='';
+      for(var i=0;i<cells.length;i++){
+        var el=document.createElement('div');el.className='pt-cell';
+        el.appendChild(document.createTextNode((labels[i]||('C'+(i+1)))+': '));
+        var b=document.createElement('b');b.id='eCell'+i;el.appendChild(b);
+        el.appendChild(document.createTextNode(' kg'));cont.appendChild(el);
+      }
+    }
+    for(var j=0;j<cells.length;j++){var bb=_$('eCell'+j);if(bb) bb.textContent=f(cells[j]);}
+  }
+  ch.onmessage=function(ev){
+    var m=ev.data||{};
+    if(m.type==='state') applyState(m);
+    else if(m.type==='data'||(!m.type&&typeof m.total!=='undefined')) applyData(m);
+  };
+  _$('cConnect').addEventListener('click',function(){
+    if(_connected) sendCmd({cmd:'connect'});
+    else{var p=_$('cPort').value;if(!p){alert('Selecciona un puerto.');return;}sendCmd({cmd:'connect',port:p});}
+  });
+  _$('cRefresh').addEventListener('click',function(){sendCmd({cmd:'refreshPorts'});});
+  _$('cRec').addEventListener('click',function(){sendCmd({cmd:'record'});});
+  _$('cAuto').addEventListener('change',function(){sendCmd({cmd:'setAutoRecord',value:_$('cAuto').checked});});
+  _$('cTipo').addEventListener('change',function(){
+    var v=_$('cTipo').value;if(!v) return;
+    _currentTipo=v;applyTipoColor();sendCmd({cmd:'setTipo',tipo:v});
+  });
+  var _alarmTimer=null;
+  ptCont.querySelectorAll('.pt-aInp').forEach(function(inp){
+    inp.addEventListener('input',function(){
+      if(_alarmTimer) clearTimeout(_alarmTimer);
+      _alarmTimer=setTimeout(function(){
+        if(!_currentTipo){alert('Selecciona un tipo de ensayo antes de configurar alarmas.');return;}
+        var alarms={};
+        ptCont.querySelectorAll('.pt-aInp').forEach(function(i){
+          var v=i.value.trim(),n=v===''?null:parseFloat(v);
+          alarms['alarm_'+i.dataset.key]=(n!=null&&isFinite(n)&&n>0)?n:null;
+        });
+        sendCmd({cmd:'setAlarm',tipo:_currentTipo,alarms:alarms});
+      },600);
+    });
+  });
+  // Sync state when tab is activated
+  var tabLink=document.getElementById('tabPantallaLink');
+  if(tabLink){
+    tabLink.addEventListener('shown.bs.tab',function(){
+      if(typeof refreshPorts==='function') refreshPorts();
+      setTimeout(function(){if(typeof _ensayoSendState==='function') _ensayoSendState();},400);
+    });
+  }
+})();
+</script>
+    </div>
+    {% endif %}
 
     <!-- ═══════════════════════════ MONITOR ══════════════════════════════════ -->
     <div class="tab-pane fade{% if not consulta_mode %} show active{% endif %}" id="tabMonitor">
@@ -262,11 +479,11 @@
               <table class="table table-sm mb-0" id="sesTable" style="table-layout:fixed;width:100%;min-width:580px">
                 <colgroup>
                   <col style="width:34px">
-                  <col style="width:100px">
+                  <col style="width:110px">
                   <col style="width:130px">
                   <col style="width:88px">
                   <col style="width:62px">
-                  <col>
+                  <col style="width:200px">
                   <col style="width:88px">
                 </colgroup>
                 <thead class="sticky-top" style="background:var(--surface);z-index:2">
