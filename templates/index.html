@@ -777,6 +777,12 @@
               Editar offsets y escalas
             </button>
           </div>
+
+          <div class="card p-3 mt-3">
+            <div class="fw-semibold mb-2">Canales de celda</div>
+            <p class="text-muted small mb-2">Deshabilita una celda dañada para excluirla del total, de los ensayos y del auto-record. No se puede cambiar durante una grabación.</p>
+            <div id="cellChannels" class="d-flex flex-column gap-1"></div>
+          </div>
         </div>
       </div>
     </div>
@@ -960,6 +966,8 @@ function escapeHtml(s){
 }
 // ── config declarativa inyectada desde /api/sensors (Registry.frontend_config) ──
 const SENSORS = {{ sensors_config | tojson }};
+// Lista COMPLETA de celdas (incluye deshabilitadas) para el toggle de canales.
+const CELL_CHANNELS = {{ cell_channels | tojson }};
 const CONSULTA_MODE = {{ consulta_mode | tojson }};
 const _PALETTE = ['#e6194b','#3cb44b','#4363d8','#f58231','#911eb4','#42d4f4','#f032e6','#bfef45','#a9a9a9'];
 const _LOADCELLS = SENSORS.filter(s => s.type === 'loadcell');
@@ -1638,6 +1646,35 @@ function saveCal(){
   fetch('/api/calibration',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(cal)})
     .then(()=>bootstrap.Modal.getInstance(document.getElementById('calModal')).hide());
 }
+
+// ── Canales de celda (habilitar/deshabilitar celda dañada) ────────────────────
+function renderCellChannels(){
+  const box=document.getElementById('cellChannels');
+  if(!box) return;
+  box.innerHTML=CELL_CHANNELS.map(c=>{
+    const lbl=escapeHtml(c.label), col=escapeHtml(c.color);
+    return `<div class="form-check form-switch d-flex align-items-center justify-content-between">
+      <label class="form-check-label" for="ch_${c.id}">
+        <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${col};margin-right:6px"></span>${lbl}
+      </label>
+      <input class="form-check-input" type="checkbox" id="ch_${c.id}" ${c.enabled?'checked':''}
+        onchange="toggleChannel('${c.id}',this.checked,this)">
+    </div>`;
+  }).join('');
+}
+function toggleChannel(id,enabled,el){
+  el.disabled=true;
+  fetch(`/api/sensors/${id}/enabled`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled})})
+    .then(r=>r.json().then(d=>({ok:r.ok,d})))
+    .then(({ok,d})=>{
+      el.disabled=false;
+      if(!ok){ el.checked=!enabled; alert(d.msg||'No se pudo cambiar el canal'); return; }
+      alert((enabled?'Celda habilitada':'Celda deshabilitada')+'. Se recargará la vista.');
+      location.reload();
+    })
+    .catch(()=>{ el.disabled=false; el.checked=!enabled; alert('Error de red'); });
+}
+document.addEventListener('DOMContentLoaded',renderCellChannels);
 
 // ── Sessions tabla con sort + filtros ─────────────────────────────────────────
 function _tsFecha(meta){

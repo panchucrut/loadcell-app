@@ -30,17 +30,37 @@ class Registry:
     def ids(self):
         return [s['id'] for s in self.sensors]
 
-    def by_type(self, t):
-        return [s['id'] for s in self.sensors if s['type'] == t]
+    def by_type(self, t, only_enabled=True):
+        """IDs de un tipo. Por defecto solo los habilitados (enabled != False).
+        Un sensor sin la clave 'enabled' se considera habilitado."""
+        return [
+            s['id'] for s in self.sensors
+            if s['type'] == t and (not only_enabled or s.get('enabled', True))
+        ]
+
+    def is_enabled(self, sensor_id):
+        return self._by_id[sensor_id].get('enabled', True)
+
+    def all_of_type(self, t):
+        """Todos los sensores de un tipo (incluye deshabilitados) con metadata
+        mínima para UI de gestión de canales."""
+        return [
+            {'id': s['id'], 'label': s.get('label', s['id']),
+             'color': s.get('color', '#888'), 'enabled': s.get('enabled', True)}
+            for s in self.sensors if s['type'] == t
+        ]
 
     def get(self, sensor_id):
         return self._by_id[sensor_id]
 
     def frontend_config(self):
-        """Config que el frontend consume para armar gráficos/tabs/ejes."""
+        """Config que el frontend consume para armar gráficos/tabs/ejes.
+        Excluye sensores deshabilitados (enabled == False)."""
         return [
-            {k: s[k] for k in ('id', 'type', 'unit', 'chart', 'axis', 'color', 'label') if k in s}
+            {**{k: s[k] for k in ('id', 'type', 'unit', 'chart', 'axis', 'color', 'label') if k in s},
+             'enabled': s.get('enabled', True)}
             for s in self.sensors
+            if s.get('enabled', True)
         ]
 
     # ── lectura de raw respetando aliases ───────────────────────────────────

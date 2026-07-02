@@ -372,8 +372,39 @@ def _raw_dimension(raw):
     return float(raw.get('dimension', raw.get('stroke', raw.get('stroke_rel', 0))))
 
 # ── registry declarativo (lee config/sensors.json) ──────────────────────────────
+SENSORS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config', 'sensors.json')
 _registry = load_registry()
-LOADCELL_IDS = _registry.by_type('loadcell')   # ['celda_1'..'celda_9']
+LOADCELL_IDS = _registry.by_type('loadcell')   # celdas HABILITADAS
+
+def _reload_registry_ids():
+    """Recarga el registry desde disco y refresca los *_IDS globales.
+    Usar tras cambiar 'enabled' de un sensor para aislar/rehabilitar canales
+    (p.ej. celda física dañada) sin reiniciar el servidor."""
+    global _registry, LOADCELL_IDS, PRESSURE_IDS, DIMENSION_IDS
+    _registry = load_registry()
+    LOADCELL_IDS  = _registry.by_type('loadcell')
+    PRESSURE_IDS  = _registry.by_type('pressure')
+    DIMENSION_IDS = _registry.by_type('dimension')
+
+def set_sensor_enabled(sensor_id, enabled):
+    """Persiste enabled=<bool> del sensor en sensors.json (escritura atómica)
+    y recarga el registry. Devuelve True si el sensor existe."""
+    with open(SENSORS_FILE) as f:
+        cfg = json.load(f)
+    found = False
+    for s in cfg.get('sensors', []):
+        if s.get('id') == sensor_id:
+            s['enabled'] = bool(enabled)
+            found = True
+            break
+    if not found:
+        return False
+    tmp = SENSORS_FILE + '.tmp'
+    with open(tmp, 'w') as f:
+        json.dump(cfg, f, indent=2, ensure_ascii=False)
+    os.replace(tmp, SENSORS_FILE)
+    _reload_registry_ids()
+    return True
 PRESSURE_IDS = _registry.by_type('pressure')
 DIMENSION_IDS = _registry.by_type('dimension')
 
@@ -753,7 +784,9 @@ def auth_me():
 @app.route('/')
 @login_required
 def index():
-    return render_template('index.html', sensors_config=_registry.frontend_config(), consulta_mode=_CONSULTA_MODE)
+    return render_template('index.html', sensors_config=_registry.frontend_config(),
+                           cell_channels=_registry.all_of_type('loadcell'),
+                           consulta_mode=_CONSULTA_MODE)
 
 @app.route('/api/ports')
 @login_required
@@ -786,6 +819,24 @@ def post_filter():
     cfg = {**load_filter(), **request.json}
     save_filter(cfg)
     return jsonify({'ok': True})
+
+@app.route('/api/sensors/<sensor_id>/enabled', methods=['POST'])
+@login_required
+@write_blocked
+def post_sensor_enabled(sensor_id):
+    """Habilita/deshabilita un canal (celda) en caliente.
+    Body: {"enabled": true|false}. Deshabilitar excluye la celda del total,
+    de la grabación de ensayos y del baseline de auto-record — sin reiniciar."""
+    if _recording:
+        return jsonify({'ok': False, 'msg': 'No se puede cambiar canales durante una grabación'}), 409
+    body = request.json or {}
+    if 'enabled' not in body:
+        return jsonify({'ok': False, 'msg': 'Falta campo enabled'}), 400
+    ok = set_sensor_enabled(sensor_id, body['enabled'])
+    if not ok:
+        return jsonify({'ok': False, 'msg': f'Sensor {sensor_id} no existe'}), 404
+    socketio.emit('sensors', {'sensors': _registry.frontend_config()})
+    return jsonify({'ok': True, 'enabled': bool(body['enabled']), 'loadcells': LOADCELL_IDS})
 
 @app.route('/api/connect', methods=['POST'])
 @login_required
@@ -1469,13 +1520,13 @@ def calibrate_zero():
     if not raw:
         return jsonify({'ok': False, 'msg': 'Sin datos del Arduino'}), 400
     cal = load_cal()
-    for i in range(1, 10):
-        k = f'celda_{i}'
+    for k in LOADCELL_IDS:
         samples = bufs.get(k) or ([float(raw[k])] if k in raw else [])
         if samples:
             cal[k]['offset'] = round(sum(samples) / len(samples), 1)
     save_cal(cal)
-    return jsonify({'ok': True, 'msg': 'Zero seteado para las 9 celdas (promediado)'})
+    n = len(LOADCELL_IDS)
+    return jsonify({'ok': True, 'msg': f'Zero seteado para {n} celda(s) habilitada(s) (promediado)'})
 
 @app.route('/api/calibrate/pressure/zero', methods=['POST'])
 @login_required
