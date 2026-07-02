@@ -1447,6 +1447,16 @@ def foto_token_claim(token):
     del _foto_tokens[token]
     return jsonify({'ok': True, 'path': dest})
 
+@app.route('/api/raw', methods=['GET'])
+@login_required
+def get_raw():
+    # Diagnostico read-only: raw crudo + buffer de zero por celda.
+    # No toca hardware ni escribe nada.
+    with _lock:
+        raw = dict(_last_raw)
+        zbuf = {f'celda_{i}': len(_zero_bufs[f'celda_{i}']) for i in range(1, 10)}
+    return jsonify({'ok': True, 'raw': raw, 'zero_buf_len': zbuf})
+
 @app.route('/api/calibrate/zero', methods=['POST'])
 @login_required
 @write_blocked
