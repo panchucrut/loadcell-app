@@ -1008,7 +1008,7 @@ const _selSet = new Set();
 let _sesResizeInit = false;
 // sort/filter estado tabla sesiones
 let _sesSortCol = 'fecha', _sesSortDir = 'desc';
-let tBuf=[], cBufs=Array.from({length:9},()=>[]), sBuf=[], pBuf=[];
+let tBuf=[], cBufs=Array.from({length:N_CELLS},()=>[]), sBuf=[], pBuf=[];
 let _chartT0 = null;  // referencia para eje X relativo (se setea al primer dato y al recortar)
 let _currentMeta = {tipo:'comp_cubo', material:'', dimensiones:'', operador:'', notas:'', titulo:''};
 let _pendingFotoName = null; // nombre de sesión al que subir foto
@@ -1094,9 +1094,9 @@ let _pressureDS = null; // dataset de presión inyectado en chartCarga
 
 function buildToggles() {
   const wrap = document.getElementById('toggleWrap');
-  let html = Array.from({length:9}, (_,i) =>
+  let html = Array.from({length:N_CELLS}, (_,i) =>
     `<button class="cell-btn" style="background:${COLORS[i]}18;border:1px solid ${COLORS[i]};color:${COLORS[i]}"
-             onclick="toggleChannel(${i},this)" data-type="celda">Celda ${i+1}</button>`
+             onclick="toggleChannel(${i},this)" data-type="celda">${CELL_LABELS[i]}</button>`
   ).join('');
   html += '<hr class="my-1">';
   html += `<button class="cell-btn" style="background:#0891b218;border:1px solid #0891b2;color:#0891b2"
@@ -1316,7 +1316,7 @@ function updateStats(d){
 // ── Controls ─────────────────────────────────────────────────────────────────
 function togglePause(){paused=!paused;document.getElementById('pauseBtn').textContent=paused?'▶ Reanudar':'⏸ Pausar';}
 function clearChart(){
-  tBuf=[];cBufs=Array.from({length:9},()=>[]);sBuf=[];pBuf=[];
+  tBuf=[];cBufs=Array.from({length:N_CELLS},()=>[]);sBuf=[];pBuf=[];
   _chartT0 = null;
   chartCarga.data.labels=[];chartCarga.data.datasets.forEach(ds=>{ds.data=[];});chartCarga.update('none');
   chartDist.data.labels=[];chartDist.data.datasets[0].data=[];chartDist.update('none');
@@ -1658,11 +1658,11 @@ function renderCellChannels(){
         <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${col};margin-right:6px"></span>${lbl}
       </label>
       <input class="form-check-input" type="checkbox" id="ch_${c.id}" ${c.enabled?'checked':''}
-        onchange="toggleChannel('${c.id}',this.checked,this)">
+        onchange="toggleCellChannel('${c.id}',this.checked,this)">
     </div>`;
   }).join('');
 }
-function toggleChannel(id,enabled,el){
+function toggleCellChannel(id,enabled,el){
   el.disabled=true;
   fetch(`/api/sensors/${id}/enabled`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled})})
     .then(r=>r.json().then(d=>({ok:r.ok,d})))
