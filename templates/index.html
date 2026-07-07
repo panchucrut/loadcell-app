@@ -1008,7 +1008,7 @@ const _selSet = new Set();
 let _sesResizeInit = false;
 // sort/filter estado tabla sesiones
 let _sesSortCol = 'fecha', _sesSortDir = 'desc';
-let tBuf=[], cBufs=Array.from({length:N_CELLS},()=>[]), sBuf=[], pBuf=[];
+let tBuf=[], cBufs=Array.from({length:N_CELLS},()=>[]), sBuf=[], pBuf=[], tempBuf=[];
 let _chartT0 = null;  // referencia para eje X relativo (se setea al primer dato y al recortar)
 let _currentMeta = {tipo:'comp_cubo', material:'', dimensiones:'', operador:'', notas:'', titulo:''};
 let _pendingFotoName = null; // nombre de sesión al que subir foto
@@ -1035,17 +1035,20 @@ const chartCarga = new Chart(document.getElementById('chartCarga').getContext('2
 // ── Chart 2: Distancia vs Tiempo ─────────────────────────────────────────────
 const chartDist = new Chart(document.getElementById('chartDist').getContext('2d'), {
   type:'line',
-  data:{labels:[], datasets:[{
-    label:'Distancia', data:[], borderColor:'#0891b2', backgroundColor:'#0891b215',
-    borderWidth:1.5, pointRadius:0, tension:0.25,
-  }]},
+  data:{labels:[], datasets:[
+    { label:'Distancia', data:[], borderColor:'#0891b2', backgroundColor:'#0891b215',
+      borderWidth:1.5, pointRadius:0, tension:0.25, yAxisID:'y' },
+    { label:'Temperatura', data:[], borderColor:'#f59e0b', backgroundColor:'#f59e0b15',
+      borderWidth:1.5, pointRadius:0, tension:0.25, yAxisID:'yTemp', spanGaps:true },
+  ]},
   options:{
     animation:false, responsive:true, maintainAspectRatio:false,
     scales:{
       x:{ticks:{color:'#57606a', maxTicksLimit:8, callback:v=>v+'s'}, grid:{color:'#e8ecf0'}},
       y:{title:{display:true, text:'Distancia (mm)', color:'#57606a'}, ticks:{color:'#57606a'}, grid:{color:'#e8ecf0'}},
+      yTemp:{position:'right', title:{display:true, text:'Temp (°C)', color:'#f59e0b'}, ticks:{color:'#f59e0b'}, grid:{drawOnChartArea:false}},
     },
-    plugins:{legend:{display:false}},
+    plugins:{legend:{display:true, labels:{boxWidth:12, font:{size:10}}}},
   }
 });
 
@@ -1254,10 +1257,11 @@ socket.on('data', d=>{
   tBuf.push(d.t);
   CELL_KEYS.forEach((k,i)=>cBufs[i].push(d[k]));
   sBuf.push(distLive(d)); pBuf.push(d.pressure);
+  tempBuf.push(typeof d.temperature==='number' ? d.temperature : NaN);
   // En ventana móvil aplica MAX_PTS; en "Todo" (windowSec=0) un tope alto de seguridad.
   const _LIM = (windowSec>0) ? MAX_PTS : 50000;
   if(tBuf.length>_LIM){
-    tBuf.shift(); cBufs.forEach(b=>b.shift()); sBuf.shift(); pBuf.shift();
+    tBuf.shift(); cBufs.forEach(b=>b.shift()); sBuf.shift(); pBuf.shift(); tempBuf.shift();
     // si se descartó el primer dato, recalibrar referencia para que el eje siga arrancando en 0
     if(tBuf.length) _chartT0 = tBuf[0];
   }
@@ -1279,13 +1283,13 @@ socket.on('status', s=>{
 });
 
 function getSlice(){
-  if(!tBuf.length)return{t:[],cells:cBufs.map(()=>[]),s:[],p:[]};
-  if(!windowSec)return{t:tBuf,cells:cBufs,s:sBuf,p:pBuf};
+  if(!tBuf.length)return{t:[],cells:cBufs.map(()=>[]),s:[],p:[],temp:[]};
+  if(!windowSec)return{t:tBuf,cells:cBufs,s:sBuf,p:pBuf,temp:tempBuf};
   const cutoff=tBuf[tBuf.length-1]-windowSec, i=tBuf.findIndex(v=>v>=cutoff);
-  return{t:tBuf.slice(i),cells:cBufs.map(b=>b.slice(i)),s:sBuf.slice(i),p:pBuf.slice(i)};
+  return{t:tBuf.slice(i),cells:cBufs.map(b=>b.slice(i)),s:sBuf.slice(i),p:pBuf.slice(i),temp:tempBuf.slice(i)};
 }
 function renderChart(){
-  const{t,cells,s,p}=getSlice();
+  const{t,cells,s,p,temp}=getSlice();
   const t0 = (_chartT0!==null) ? _chartT0 : (t[0]||0);
   const labels=t.map(v=>(v-t0).toFixed(1));
   // Chart 1: celdas vs tiempo + presión
@@ -1293,9 +1297,10 @@ function renderChart(){
   cells.forEach((c,i)=>{ chartCarga.data.datasets[i].data=c; });
   if(_pressureDS) _pressureDS.data=p;
   chartCarga.update('none');
-  // Chart 2: distancia vs tiempo
+  // Chart 2: distancia vs tiempo + temperatura (eje secundario)
   chartDist.data.labels=labels;
   chartDist.data.datasets[0].data=s;
+  chartDist.data.datasets[1].data=temp;
   chartDist.update('none');
   // Chart 3: carga total vs distancia (scatter, in-place)
   const totalArr=s.map((_,i)=>cells.reduce((acc,c)=>acc+(c[i]||0),0));
@@ -1316,10 +1321,10 @@ function updateStats(d){
 // ── Controls ─────────────────────────────────────────────────────────────────
 function togglePause(){paused=!paused;document.getElementById('pauseBtn').textContent=paused?'▶ Reanudar':'⏸ Pausar';}
 function clearChart(){
-  tBuf=[];cBufs=Array.from({length:N_CELLS},()=>[]);sBuf=[];pBuf=[];
+  tBuf=[];cBufs=Array.from({length:N_CELLS},()=>[]);sBuf=[];pBuf=[];tempBuf=[];
   _chartT0 = null;
   chartCarga.data.labels=[];chartCarga.data.datasets.forEach(ds=>{ds.data=[];});chartCarga.update('none');
-  chartDist.data.labels=[];chartDist.data.datasets[0].data=[];chartDist.update('none');
+  chartDist.data.labels=[];chartDist.data.datasets[0].data=[];chartDist.data.datasets[1].data=[];chartDist.update('none');
   chartCargaDist.data.datasets[0].data=[];chartCargaDist.update('none');
 }
 

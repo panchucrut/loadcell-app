@@ -588,6 +588,11 @@ def process_raw(raw, t0):
         cfg  = load_filter()
         data = apply_cal(raw, cal, cfg)
         data = apply_filter(data, cfg)
+        # temperatura AM2302: viene como raw['temp'] (o null si el DHT aún no leyó).
+        # Se inyecta directo (fuera del registry) para no romper el frame si es null.
+        _tv = raw.get('temp')
+        if isinstance(_tv, (int, float)):
+            data['temperature'] = round(float(_tv), 1)
         data['t'] = round(time.time() - t0, 2)
         with _lock:
             _last_data.clear()
